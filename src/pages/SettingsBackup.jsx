@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 
 export default function SettingsBackup() {
-  const currentAppVersion = 'v1.0.0';
+  const currentAppVersion = 'v1.0.1';
 
   // Notifications
   const [successMsg, setSuccessMsg] = useState('');

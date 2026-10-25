@@ -7,7 +7,7 @@ Yeh folder customer terminal PC deployment aur GitHub remote auto-update managem
 ## 1. Customer PC Deployment (Desktop Shortcut Setup)
 
 Jab client/customer ke PC par system install karna ho:
-1. **Setup File:** Customer ke PC par `Diyal-Filling-Station-Setup-1.0.0.exe` download karein.
+1. **Setup File:** Customer ke PC par `Diyal-Filling-Station-Setup-1.0.1.exe` download karein.
 2. **Installation:** Setup file par double-click karein. 
 3. **Desktop Shortcut:** Setup khud-ba-khud Windows Desktop par **"Diyal Filling Station"** ka shortcut icon bana dega.
 4. **Direct Login Launch:** Desktop shortcut open karne par application seedha **Login Screen** (`admin` / `admin`) par launch hogi.

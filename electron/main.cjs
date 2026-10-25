@@ -113,7 +113,7 @@ function createApplicationMenu() {
               type: 'info',
               title: 'Petrol Pump Management System',
               message: 'Diyal Filling Station — Petrol Pump Management System',
-              detail: 'Offline-First Desktop ERP v1.0.0\nBuilt with React, Electron, Dexie.js (IndexedDB) and Tailwind CSS.\nFleet Ledgers, Fuel Dispensing, Stock & Daily Closing.'
+              detail: 'Offline-First Desktop ERP v1.0.1\nBuilt with React, Electron, Dexie.js (IndexedDB) and Tailwind CSS.\nFleet Ledgers, Fuel Dispensing, Stock & Daily Closing.'
             });
           }
         }

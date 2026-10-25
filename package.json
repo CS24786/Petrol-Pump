@@ -1,7 +1,7 @@
 {
   "name": "petrol-pump-system",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Offline-First Petrol Pump Management System with Fleet Ledgers, Stock & Shift Closing",
   "author": "Antigravity Dev",
   "main": "electron/main.cjs",
@@ -49,7 +49,7 @@
     "productName": "Diyal Filling Station",
     "electronVersion": "44.7.0",
     "directories": {
-      "output": "dist-electron"
+      "output": "release"
     },
     "files": [
       "dist/**/*",
@@ -67,7 +67,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "public/logo.png"
+      "icon": "public/logo.ico"
     },
     "nsis": {
       "oneClick": false,

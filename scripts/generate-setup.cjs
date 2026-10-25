@@ -109,36 +109,55 @@ pause
 fs.writeFileSync(path.join(releaseDir, 'Install-Desktop-Shortcut.bat'), setupBatContent, 'utf-8');
 
 // 6. Compile C# Standalone Setup Executable (.exe)
+const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8'));
+const version = pkg.version || '1.0.1';
 const installerCsPath = path.join(rootDir, 'scripts', 'Installer.cs');
-const outExePath = path.join(releaseDir, 'Diyal-Filling-Station-Setup-1.0.0.exe');
+const outExePath = path.join(releaseDir, `Diyal-Filling-Station-Setup-${version}.exe`);
 const cscPath = 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe';
+const icoPath = path.join(rootDir, 'public', 'logo.ico');
 
 if (fs.existsSync(installerCsPath) && fs.existsSync(cscPath)) {
-  console.log('2. Compiling native Windows Setup .exe...');
+  console.log(`2. Compiling native Windows Setup .exe (v${version}) with embedded icon...`);
   try {
-    execSync(`"${cscPath}" /target:winexe /out:"${outExePath}" /r:System.Windows.Forms.dll /r:System.Drawing.dll "${installerCsPath}"`, {
+    const iconFlag = fs.existsSync(icoPath) ? `/win32icon:"${icoPath}"` : '';
+    execSync(`"${cscPath}" /target:winexe ${iconFlag} /out:"${outExePath}" /r:System.Windows.Forms.dll /r:System.Drawing.dll "${installerCsPath}"`, {
       stdio: 'inherit'
     });
-    console.log('[SUCCESS] Diyal-Filling-Station-Setup-1.0.0.exe compiled successfully!');
+    console.log(`[SUCCESS] Diyal-Filling-Station-Setup-${version}.exe compiled successfully with native icon!`);
 
     // Calculate Hash and update latest.yml
     const fileBuffer = fs.readFileSync(outExePath);
     const hash = crypto.createHash('sha512').update(fileBuffer).digest('hex').toUpperCase();
     const stats = fs.statSync(outExePath);
 
-    const ymlContent = `version: 1.0.0
+    const ymlContent = `version: ${version}
 files:
-  - url: Diyal-Filling-Station-Setup-1.0.0.exe
+  - url: Diyal-Filling-Station-Setup-${version}.exe
     sha512: ${hash}
     size: ${stats.size}
-path: Diyal-Filling-Station-Setup-1.0.0.exe
+path: Diyal-Filling-Station-Setup-${version}.exe
 sha512: ${hash}
 releaseDate: '${new Date().toISOString()}'
 `;
     fs.writeFileSync(path.join(releaseDir, 'latest.yml'), ymlContent, 'utf-8');
+
+    // Update latest.json
+    const jsonContent = {
+      version: version,
+      tag: `v${version}`,
+      productName: "Diyal Filling Station",
+      releaseDate: new Date().toISOString().slice(0, 10),
+      installerName: `Diyal-Filling-Station-Setup-${version}.exe`,
+      downloadUrl: `https://github.com/CS24786/Petrol-Pump/releases/download/v${version}/Diyal-Filling-Station-Setup-${version}.exe`,
+      githubRepo: "CS24786/Petrol-Pump",
+      changelog: `Release v${version}: Desktop shortcut with official icon, clean setup messaging, and GitHub auto-updates.`
+    };
+    fs.writeFileSync(path.join(releaseDir, 'latest.json'), JSON.stringify(jsonContent, null, 2), 'utf-8');
+    console.log(`[SUCCESS] Generated latest.yml and latest.json for v${version}`);
   } catch (err) {
     console.error('Error compiling C# setup exe:', err.message);
   }
 }
 
 console.log('=== Desktop release package built successfully in /release directory! ===');
+
