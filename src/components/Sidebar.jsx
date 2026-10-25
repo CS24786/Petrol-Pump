@@ -70,24 +70,22 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }) {
   return (
     <aside className="w-64 bg-[#0c1527] flex flex-col shrink-0 select-none no-print relative overflow-hidden text-slate-300 z-30 border-r border-slate-800/60">
 
-      {/* Top Brand: Logo & Diyal Filling Station */}
+      {/* Top Brand: Logo & Diyal Filling Station matching Login screen */}
       <div className="px-5 py-5 border-b border-slate-800/80 flex items-center">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-white p-1 shadow-md flex items-center justify-center shrink-0 overflow-hidden">
-            <img
-              src="/logo.jpg"
-              alt="Diyal Logo"
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                e.target.src = '/logo.png';
-              }}
-            />
-          </div>
+        <div className="flex items-center gap-2.5">
+          <img
+            src="./logo.png"
+            alt="Diyal Logo"
+            className="h-9 w-auto object-contain shrink-0 drop-shadow-sm"
+            onError={(e) => {
+              e.target.src = './logo.jpg';
+            }}
+          />
           <div className="flex flex-col leading-none">
             <span className="text-xl font-black tracking-wider text-white">
               DIYAL
             </span>
-            <span className="text-[10px] font-bold tracking-widest uppercase mt-0.5 text-[#C32026]">
+            <span className="text-[10px] font-bold tracking-widest uppercase mt-0.5 text-[#c52227]">
               FILLING STATION
             </span>
           </div>
@@ -140,7 +138,7 @@ export default function Sidebar({ activeTab, setActiveTab, onLogout }) {
       {/* Bottom Subtle Watermark Emblem */}
       <div className="absolute -bottom-6 -left-6 pointer-events-none opacity-5">
         <img
-          src="/logo.png"
+          src="./logo.png"
           alt=""
           className="w-36 h-48 object-contain filter grayscale invert"
         />

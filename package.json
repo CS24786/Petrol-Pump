@@ -11,9 +11,14 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "start": "electron electron/main.cjs",
+    "electron": "electron electron/main.cjs",
     "electron:dev": "concurrently -k \"vite\" \"wait-on -t 20000 tcp:5173 && electron .\"",
     "electron:build": "vite build && electron-builder",
-    "electron:pack": "vite build && electron-builder --dir"
+    "electron:pack": "vite build && electron-builder --dir",
+    "build:exe": "vite build && electron-builder",
+    "build:release": "vite build && electron-builder --publish always",
+    "make:release": "node scripts/generate-setup.cjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -42,6 +47,7 @@
   "build": {
     "appId": "com.diyal.petrolpump",
     "productName": "Diyal Filling Station",
+    "electronVersion": "44.7.0",
     "directories": {
       "output": "dist-electron"
     },
@@ -50,11 +56,18 @@
       "electron/**/*",
       "public/**/*"
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "CS24786",
+        "repo": "Petrol-Pump"
+      }
+    ],
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "public/pump-icon.svg"
+      "icon": "public/logo.png"
     },
     "nsis": {
       "oneClick": false,
@@ -62,7 +75,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Diyal Filling Station"
+      "shortcutName": "Diyal Filling Station",
+      "artifactName": "Diyal-Filling-Station-Setup-${version}.${ext}"
     }
   }
 }

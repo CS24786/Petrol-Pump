@@ -28,6 +28,8 @@ import {
   FileDown
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDateDisplay, exportToCSV } from '../utils/formatters';
+import { exportReportToPDF } from '../utils/pdfExport';
+import Pagination from '../components/Pagination';
 
 export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
   const [activeTab, setActiveTab] = useState(defaultTab); // 'purchases', 'suppliers', 'payments'
@@ -38,6 +40,10 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
   const [filterFuel, setFilterFuel] = useState('All');
   const [filterDate, setFilterDate] = useState('');
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
+
+  // Pagination states
+  const [purchasesPage, setPurchasesPage] = useState(1);
+  const [purchasesPageSize, setPurchasesPageSize] = useState(15);
 
   // Modals
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
@@ -107,7 +113,7 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
   const settingsList = useLiveQuery(() => db.settings.toArray(), []);
 
   const pumpName = settingsList?.find(s => s.key === 'pumpName')?.value || 'DIYAL FILLING STATION';
-  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Jhumra City';
+  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Chak Jhumra, FSD.';
   const pumpPhone = settingsList?.find(s => s.key === 'pumpPhone')?.value || '+92 300 7654321 | +92 321 9876543';
 
   // Initialize form defaults
@@ -654,7 +660,7 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[160px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
         style={{
-          backgroundImage: "url('/meter_background.jpg')"
+          backgroundImage: "url('./meter_background.jpg')"
         }}
       >
         {/* Soft navy gradient overlay for contrast */}
@@ -947,14 +953,18 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredPurchases.length === 0 ? (
-                    <tr>
-                      <td colSpan={12} className="py-10 text-center text-xs text-slate-400">
-                        No fuel purchase entries found. Click &quot;Receive Fuel Tanker&quot; to record delivery.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredPurchases.map(p => {
+                  {(() => {
+                    const paginatedPurchases = filteredPurchases.slice((purchasesPage - 1) * purchasesPageSize, purchasesPage * purchasesPageSize);
+                    if (paginatedPurchases.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={12} className="py-10 text-center text-xs text-slate-400">
+                            No fuel purchase entries found. Click &quot;Receive Fuel Tanker&quot; to record delivery.
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return paginatedPurchases.map(p => {
                       const supp = suppliers?.find(s => s.id === p.supplierId);
                       const tank = tanks?.find(t => t.id === p.tankId);
 
@@ -1027,11 +1037,19 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
                           </td>
                         </tr>
                       );
-                    })
-                  )}
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
+
+            <Pagination
+              currentPage={purchasesPage}
+              totalItems={filteredPurchases.length}
+              pageSize={purchasesPageSize}
+              onPageChange={setPurchasesPage}
+              onPageSizeChange={setPurchasesPageSize}
+            />
           </div>
 
         </div>
@@ -2056,15 +2074,17 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
       {selectedPurchaseForPrint && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
           <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
-            {/* Top Modal Navigation Header Bar (SCREEN ONLY) */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2.5">
-                <Truck className="w-5 h-5 text-blue-400" />
+            {/* Top Modal Navigation Header Bar (SCREEN ONLY - Clean White Style) */}
+            <div className="px-6 py-4 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
+                  <Truck className="w-5 h-5 text-blue-600" />
+                </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
                     Fuel Tanker Inward Decanting Voucher
                   </h3>
-                  <span className="text-[11px] text-slate-300 font-normal">
+                  <span className="text-[11px] text-slate-500 font-normal">
                     Invoice #{selectedPurchaseForPrint.invoiceNo} &bull; Delivery Receipt
                   </span>
                 </div>
@@ -2073,11 +2093,14 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer border border-slate-700 transition-all shadow-xs"
-                  title="Save as PDF via browser print preview"
+                  onClick={() => {
+                    const fname = `Diyal_Decanting_Voucher_${selectedPurchaseForPrint.invoiceNo || 'Tanker'}.pdf`;
+                    exportReportToPDF('tanker-decanting-voucher', fname);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer border border-blue-200 transition-all shadow-xs"
+                  title="Directly save PDF file to your computer"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-blue-400" />
+                  <FileDown className="w-3.5 h-3.5 text-blue-600" />
                   <span>Save PDF</span>
                 </button>
 
@@ -2093,7 +2116,7 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
                 <button
                   type="button"
                   onClick={() => setSelectedPurchaseForPrint(null)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer ml-1"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer ml-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2105,17 +2128,15 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
               {/* Diyal Station Header */}
               <div className="flex items-center justify-between border-b pb-4 border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-100 shadow-xs flex items-center justify-center shrink-0">
-                    <img 
-                      src="/logo.jpg" 
-                      alt="Diyal Logo" 
-                      className="w-full h-full object-contain"
-                      onError={e => { e.target.src = '/logo.png'; }}
-                    />
-                  </div>
-                  <div>
+                  <img 
+                    src="./logo.png" 
+                    alt="Diyal Logo" 
+                    className="h-12 w-auto object-contain shrink-0 drop-shadow-xs"
+                    onError={e => { e.target.src = './logo.jpg'; }}
+                  />
+                  <div className="flex flex-col leading-none">
                     <h2 className="text-xl font-black text-slate-950 uppercase font-sans">DIYAL</h2>
-                    <h3 className="text-xs font-black tracking-widest text-[#C32026] uppercase">FILLING STATION</h3>
+                    <h3 className="text-xs font-bold tracking-widest text-[#C32026] uppercase mt-0.5">FILLING STATION</h3>
                   </div>
                 </div>
                 <div className="text-xs text-slate-600 space-y-0.5 text-right font-sans">
@@ -2230,16 +2251,18 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
       {/* ========================================================================= */}
       {isPurchasesPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
-            {/* Top Modal Navigation Header Bar (SCREEN ONLY) */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2.5">
-                <Truck className="w-5 h-5 text-blue-400" />
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
+            {/* Top Modal Navigation Header Bar (SCREEN ONLY - Clean White Style) */}
+            <div className="px-6 py-4 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
+                  <Truck className="w-5 h-5 text-blue-600" />
+                </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
                     Fuel Purchases &amp; Tanker Deliveries Registry
                   </h3>
-                  <span className="text-[11px] text-slate-300 font-normal">
+                  <span className="text-[11px] text-slate-500 font-normal">
                     Official OMC Bulk Procurement Record &bull; Printable Corporate A4 Document
                   </span>
                 </div>
@@ -2249,7 +2272,7 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
                 <button
                   type="button"
                   onClick={handleExportPurchasesCSV}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all shadow-xs"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Export Excel</span>
@@ -2257,11 +2280,14 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer border border-slate-700 transition-all shadow-xs"
-                  title="Save as PDF via system print preview"
+                  onClick={() => {
+                    const fname = `Diyal_Fuel_Purchases_Registry.pdf`;
+                    exportReportToPDF('fuel-purchases-registry-report', fname);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer border border-blue-200 transition-all shadow-xs"
+                  title="Directly save PDF file to your computer"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-blue-400" />
+                  <FileDown className="w-3.5 h-3.5 text-blue-600" />
                   <span>Save PDF</span>
                 </button>
 
@@ -2277,7 +2303,7 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
                 <button
                   type="button"
                   onClick={() => setIsPurchasesPrintModalOpen(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer ml-1"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer ml-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2289,19 +2315,17 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
               {/* Diyal Filling Station Header */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4 border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-100 shadow-xs flex items-center justify-center shrink-0">
-                    <img 
-                      src="/logo.jpg" 
-                      alt="Diyal Logo" 
-                      className="w-full h-full object-contain"
-                      onError={e => { e.target.src = '/logo.png'; }}
-                    />
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight leading-tight uppercase font-sans">
+                  <img 
+                    src="./logo.png" 
+                    alt="Diyal Logo" 
+                    className="h-12 sm:h-14 w-auto object-contain shrink-0 drop-shadow-xs"
+                    onError={e => { e.target.src = './logo.jpg'; }}
+                  />
+                  <div className="flex flex-col leading-none">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-wider uppercase font-sans">
                       DIYAL
                     </h2>
-                    <h3 className="text-xs font-black tracking-widest text-[#C32026] uppercase">
+                    <h3 className="text-xs font-bold tracking-widest text-[#C32026] uppercase mt-0.5">
                       FILLING STATION
                     </h3>
                   </div>
@@ -2481,16 +2505,18 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
       {/* ========================================================================= */}
       {isStatementPrintModalOpen && activeSupplier && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
-            {/* Top Modal Navigation Header Bar (SCREEN ONLY) */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2.5">
-                <Building2 className="w-5 h-5 text-emerald-400" />
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
+            {/* Top Modal Navigation Header Bar (SCREEN ONLY - Clean White Style) */}
+            <div className="px-6 py-4 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
+                  <Building2 className="w-5 h-5 text-blue-600" />
+                </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
                     Supplier Account Statement &amp; Ledger Report
                   </h3>
-                  <span className="text-[11px] text-slate-300 font-normal">
+                  <span className="text-[11px] text-slate-500 font-normal">
                     {activeSupplier?.name} &bull; Printable Corporate A4 Document
                   </span>
                 </div>
@@ -2500,7 +2526,7 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
                 <button
                   type="button"
                   onClick={handleExportStatementCSV}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all shadow-xs"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Export Excel</span>
@@ -2508,11 +2534,14 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer border border-slate-700 transition-all shadow-xs"
-                  title="Save as PDF via system print preview"
+                  onClick={() => {
+                    const fname = `Diyal_Supplier_Statement_${(activeSupplier?.name || 'Supplier').replace(/\s+/g, '_')}.pdf`;
+                    exportReportToPDF('supplier-statement-report', fname);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer border border-blue-200 transition-all shadow-xs"
+                  title="Directly save PDF file to your computer"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-emerald-400" />
+                  <FileDown className="w-3.5 h-3.5 text-blue-600" />
                   <span>Save PDF</span>
                 </button>
 
@@ -2528,7 +2557,7 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
                 <button
                   type="button"
                   onClick={() => setIsStatementPrintModalOpen(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer ml-1"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer ml-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2540,19 +2569,17 @@ export default function SuppliersPurchasesHub({ defaultTab = 'purchases' }) {
               {/* Header: Logo, Diyal Filling Station & Contact */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4 border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-100 shadow-xs flex items-center justify-center shrink-0">
-                    <img 
-                      src="/logo.jpg" 
-                      alt="Diyal Logo" 
-                      className="w-full h-full object-contain"
-                      onError={e => { e.target.src = '/logo.png'; }}
-                    />
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight leading-tight uppercase font-sans">
+                  <img 
+                    src="./logo.png" 
+                    alt="Diyal Logo" 
+                    className="h-12 sm:h-14 w-auto object-contain shrink-0 drop-shadow-xs"
+                    onError={e => { e.target.src = './logo.jpg'; }}
+                  />
+                  <div className="flex flex-col leading-none">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-wider uppercase font-sans">
                       DIYAL
                     </h2>
-                    <h3 className="text-xs font-black tracking-widest text-[#C32026] uppercase">
+                    <h3 className="text-xs font-bold tracking-widest text-[#C32026] uppercase mt-0.5">
                       FILLING STATION
                     </h3>
                   </div>

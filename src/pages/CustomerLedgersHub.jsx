@@ -141,7 +141,7 @@ export default function CustomerLedgersHub({ onOpenPaymentModal, onOpenReceipt }
       {/* 1. PERSISTENT HERO BANNER WITH REALISTIC SALES BACKGROUND (STAYS ON ALL TABS) */}
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[140px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
-        style={{ backgroundImage: "url('/sales_background.jpg')" }}
+        style={{ backgroundImage: "url('./sales_background.jpg')" }}
       >
         <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/55 to-transparent pointer-events-none"></div>
 

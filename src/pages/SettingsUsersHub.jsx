@@ -11,31 +11,21 @@ export default function SettingsUsersHub() {
       {/* 1. TOP PANORAMIC BANNER */}
       <div 
         className="w-full h-44 rounded-2xl relative overflow-hidden bg-cover bg-center shadow-sm flex items-center justify-between px-8 no-print"
-        style={{ backgroundImage: "url('/dashboard_background.jpg')" }}
+        style={{ backgroundImage: "url('./dashboard_background.jpg')" }}
       >
         {/* Dark Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-r from-[#0F1B2F]/95 via-[#0F1B2F]/80 to-transparent pointer-events-none"></div>
 
         {/* Banner Left Info */}
-        <div className="relative z-10 text-white max-w-xl flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-xl bg-white p-1 shadow-md flex items-center justify-center shrink-0 border border-white/20">
-            <img
-              src="/logo.jpg"
-              alt="Diyal Logo"
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                e.target.src = '/logo.png';
-              }}
-            />
+        <div className="relative z-10 text-white max-w-xl flex items-center gap-4 sm:gap-5">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-blue-600/30">
+            <Settings className="w-7 h-7 sm:w-8 sm:h-8" />
           </div>
           <div>
-            <span className="text-white/80 text-xs sm:text-sm font-medium tracking-wide block">
-              Diyal Filling Station &bull; Module 10
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-wide text-white mt-0.5">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white drop-shadow-sm">
               Settings &amp; User Management
             </h1>
-            <p className="text-white/75 text-xs mt-1">
+            <p className="text-white/90 text-xs sm:text-sm font-normal drop-shadow-xs mt-1 max-w-xl leading-relaxed">
               Station business profile, fuel rates, administrator access, roles &amp; offline data backups
             </p>
           </div>
@@ -60,7 +50,7 @@ export default function SettingsUsersHub() {
             }`}
           >
             <Settings className="w-4 h-4 text-blue-600" />
-            <span>Station Profile &amp; Fuel Rates</span>
+            <span>Station Profile &amp; System Settings</span>
           </button>
 
           <button
@@ -74,31 +64,17 @@ export default function SettingsUsersHub() {
             <Users className="w-4 h-4 text-indigo-600" />
             <span>User Accounts &amp; Audit Logs</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('backup')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'backup'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Database className="w-4 h-4 text-emerald-600" />
-            <span>Backup &amp; Disaster Recovery</span>
-          </button>
         </div>
 
         <div className="text-xs text-slate-500 font-medium px-3 hidden lg:block">
-          {activeTab === 'settings' && 'Update station name, address, NTN & fuel dispensing rates'}
-          {activeTab === 'users' && 'Manage cashiers, change passwords & review audit logs'}
-          {activeTab === 'backup' && 'Download JSON database backup & restore safely'}
+          {activeTab === 'settings' && 'Station identity, fuel rates, GitHub auto-updates & database backups'}
+          {activeTab === 'users' && 'Manage cashier logins, credentials & system activity logs'}
         </div>
       </div>
 
       {/* Render Active Sub-Page */}
-      {activeTab === 'settings' && <SettingsBackup defaultSection="profile" />}
+      {activeTab === 'settings' && <SettingsBackup />}
       {activeTab === 'users' && <UsersAccess />}
-      {activeTab === 'backup' && <SettingsBackup defaultSection="backup" />}
     </div>
   );
 }

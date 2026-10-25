@@ -25,6 +25,7 @@ import {
   Eye
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDateDisplay, exportToCSV } from '../utils/formatters';
+import Pagination from '../components/Pagination';
 
 export default function MeterReadings({ onNavigate, onOpenQuickSale, onOpenReceipt }) {
   const [selectedDate, setSelectedDate] = useState('2026-10-02');
@@ -98,81 +99,6 @@ export default function MeterReadings({ onNavigate, onOpenQuickSale, onOpenRecei
   const calculatedLitres = Math.max(0, closingNum - openingNum - testingNum);
   const calculatedSalesAmt = Math.round(calculatedLitres * rateNum);
 
-  // Auto-seed initial shift readings for 2026-10-02 if none exist in Dexie
-  useEffect(() => {
-    const checkAndSeedReadings = async () => {
-      try {
-        const count = await db.meterReadings.count();
-        if (count === 0) {
-          await db.meterReadings.bulkAdd([
-            {
-              date: '2026-10-02',
-              nozzleId: 1,
-              nozzleName: 'Nozzle 1 (HSD Diesel - Bay 1A)',
-              fuelType: 'Diesel',
-              openingMeter: 125430.5,
-              closingMeter: 125860.5,
-              testingLitres: 10,
-              litresSold: 420.0,
-              rate: 400.94,
-              salesAmount: 168395,
-              remarks: 'Shift A - Heavy fleet traffic',
-              createdAt: '2026-10-02T22:00:00.000Z',
-              updatedAt: '2026-10-02T22:00:00.000Z'
-            },
-            {
-              date: '2026-10-02',
-              nozzleId: 2,
-              nozzleName: 'Nozzle 2 (HSD Diesel - Bay 1B)',
-              fuelType: 'Diesel',
-              openingMeter: 94820.0,
-              closingMeter: 95210.0,
-              testingLitres: 10,
-              litresSold: 380.0,
-              rate: 400.94,
-              salesAmount: 152357,
-              remarks: 'Shift B - M.B Goods challans',
-              createdAt: '2026-10-02T22:00:00.000Z',
-              updatedAt: '2026-10-02T22:00:00.000Z'
-            },
-            {
-              date: '2026-10-02',
-              nozzleId: 3,
-              nozzleName: 'Nozzle 3 (PMG Petrol - Bay 2A)',
-              fuelType: 'Petrol',
-              openingMeter: 61200.0,
-              closingMeter: 61455.0,
-              testingLitres: 5,
-              litresSold: 250.0,
-              rate: 400.66,
-              salesAmount: 100165,
-              remarks: 'Regular motor petrol day shift',
-              createdAt: '2026-10-02T22:00:00.000Z',
-              updatedAt: '2026-10-02T22:00:00.000Z'
-            },
-            {
-              date: '2026-10-02',
-              nozzleId: 4,
-              nozzleName: 'Nozzle 4 (PMG Petrol - Bay 2B)',
-              fuelType: 'Petrol',
-              openingMeter: 48900.0,
-              closingMeter: 49115.0,
-              testingLitres: 5,
-              litresSold: 210.0,
-              rate: 400.66,
-              salesAmount: 84139,
-              remarks: 'Retail petrol evening shift',
-              createdAt: '2026-10-02T22:00:00.000Z',
-              updatedAt: '2026-10-02T22:00:00.000Z'
-            }
-          ]);
-        }
-      } catch (err) {
-        console.error('Error auto-seeding meter readings:', err);
-      }
-    };
-    checkAndSeedReadings();
-  }, []);
 
   // Filtered readings for selected date/fuel/search
   const filteredReadings = useMemo(() => {
@@ -319,6 +245,11 @@ export default function MeterReadings({ onNavigate, onOpenQuickSale, onOpenRecei
     e.preventDefault();
     setFormError('');
 
+    if (!formNozzleId || !activeNozzle) {
+      setFormError('Please select a dispenser nozzle. If no nozzles exist, please add one in Fuel Stock & Tanks first.');
+      return;
+    }
+
     if (closingNum < openingNum) {
       setFormError('Closing meter reading cannot be less than opening reading.');
       return;
@@ -424,7 +355,7 @@ export default function MeterReadings({ onNavigate, onOpenQuickSale, onOpenRecei
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[160px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
         style={{
-          backgroundImage: "url('/meter_background.jpg')"
+          backgroundImage: "url('./meter_background.jpg')"
         }}
       >
         {/* Soft gradient overlay on left for maximum text & icon contrast */}
@@ -728,41 +659,13 @@ export default function MeterReadings({ onNavigate, onOpenQuickSale, onOpenRecei
         </div>
 
         {/* Table Footer with Record Count & Pagination */}
-        <div className="p-4 border-t border-slate-200/80 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500 no-print">
-          <div>
-            Showing <strong className="text-slate-800">{filteredReadings.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong> to <strong className="text-slate-800">{Math.min(currentPage * pageSize, filteredReadings.length)}</strong> of <strong className="text-slate-800">{filteredReadings.length}</strong> records
-          </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-bold disabled:opacity-40 cursor-pointer"
-            >
-              &lt;
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  currentPage === page
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'border border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                {page}
-              </button>
-            ))}
-            <button
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-bold disabled:opacity-40 cursor-pointer"
-            >
-              &gt;
-            </button>
-          </div>
-        </div>
+        <Pagination 
+          currentPage={currentPage}
+          totalItems={filteredReadings.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setCurrentPage(1); }}
+        />
 
       </div>
 
@@ -820,11 +723,15 @@ export default function MeterReadings({ onNavigate, onOpenQuickSale, onOpenRecei
                     required
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {nozzles?.map(n => (
-                      <option key={n.id} value={n.id}>
-                        {n.nozzleName} ({n.fuelType})
-                      </option>
-                    ))}
+                    {(!nozzles || nozzles.length === 0) ? (
+                      <option value="">No nozzles configured - Add in Fuel Stock &amp; Tanks</option>
+                    ) : (
+                      nozzles.map(n => (
+                        <option key={n.id} value={n.id}>
+                          {n.nozzleName} ({n.fuelType})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>

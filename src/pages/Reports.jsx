@@ -33,6 +33,8 @@ import {
   X
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDateDisplay, exportToCSV } from '../utils/formatters';
+import { exportReportToPDF } from '../utils/pdfExport';
+import Pagination from '../components/Pagination';
 
 const REPORT_TABS = [
   { id: 'overall_sales', label: 'Overall Sales & Analytics', icon: BarChart3 },
@@ -52,6 +54,12 @@ export default function Reports() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
+  // Pagination states for sales tables
+  const [detailedPage, setDetailedPage] = useState(1);
+  const [detailedPageSize, setDetailedPageSize] = useState(15);
+  const [truckPage, setTruckPage] = useState(1);
+  const [truckPageSize, setTruckPageSize] = useState(15);
+
   // Live queries from Dexie database
   const meterReadings = useLiveQuery(() => db.meterReadings?.toArray() || [], []);
   const sales = useLiveQuery(() => db.sales?.toArray() || [], []);
@@ -65,7 +73,7 @@ export default function Reports() {
   const settingsList = useLiveQuery(() => db.settings?.toArray() || [], []);
 
   const pumpName = settingsList?.find(s => s.key === 'pumpName')?.value || 'DIYAL FILLING STATION';
-  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Jhumra City';
+  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Chak Jhumra, FSD.';
   const pumpPhone = settingsList?.find(s => s.key === 'pumpPhone')?.value || '+92 300 7654321 | +92 321 9876543';
 
   // Navigation handlers for date / month
@@ -248,6 +256,45 @@ export default function Reports() {
     const cashSharePct = totalRevenue > 0 ? Math.round((totalCash / totalRevenue) * 100) : 0;
     const creditSharePct = totalRevenue > 0 ? Math.round((totalCredit / totalRevenue) * 100) : 0;
 
+    // Period Operating Expenses
+    const periodExpenses = expenses?.filter(e => isDateInRange(e.date) && e.type !== 'Income') || [];
+    const totalOperatingExpenses = periodExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    // Calculate Purchase Cost / COGS from purchases or standard dealer margin
+    const dieselPurchases = purchases?.filter(p => p.fuelType === 'Diesel' || p.fuelType === 'HSD') || [];
+    const petrolPurchases = purchases?.filter(p => p.fuelType === 'Petrol' || p.fuelType === 'PMG') || [];
+
+    let avgDieselBuyRate = 0;
+    if (dieselPurchases.length > 0) {
+      const totL = dieselPurchases.reduce((s, p) => s + (Number(p.litres) || 0), 0);
+      const totA = dieselPurchases.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+      avgDieselBuyRate = totL > 0 ? totA / totL : 0;
+    }
+    let avgPetrolBuyRate = 0;
+    if (petrolPurchases.length > 0) {
+      const totL = petrolPurchases.reduce((s, p) => s + (Number(p.litres) || 0), 0);
+      const totA = petrolPurchases.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+      avgPetrolBuyRate = totL > 0 ? totA / totL : 0;
+    }
+
+    const avgDieselSellRate = finalDieselLitres > 0 ? dieselRevenue / finalDieselLitres : 275;
+    const avgPetrolSellRate = finalPetrolLitres > 0 ? petrolRevenue / finalPetrolLitres : 267;
+
+    // Fallback to standard OMC dealer commission (~Rs 8.64/L) if no purchases logged
+    if (!avgDieselBuyRate || avgDieselBuyRate <= 0) avgDieselBuyRate = Math.max(0, avgDieselSellRate - 8.64);
+    if (!avgPetrolBuyRate || avgPetrolBuyRate <= 0) avgPetrolBuyRate = Math.max(0, avgPetrolSellRate - 8.64);
+
+    const dieselCost = finalDieselLitres * avgDieselBuyRate;
+    const petrolCost = finalPetrolLitres * avgPetrolBuyRate;
+    const mobilOilCost = mobilOilAmount * 0.75;
+    const totalCOGS = dieselCost + petrolCost + mobilOilCost;
+
+    const grossProfit = Math.max(0, totalRevenue - totalCOGS);
+    const netProfit = grossProfit - totalOperatingExpenses;
+    const netMarginPct = totalRevenue > 0 ? Number(((netProfit / totalRevenue) * 100).toFixed(1)) : 0;
+    const profitPerLitre = totalLitres > 0 ? Number((netProfit / totalLitres).toFixed(2)) : 0;
+    const grossMarginPerLitre = totalLitres > 0 ? Number((grossProfit / totalLitres).toFixed(2)) : 0;
+
     return {
       totalRevenue,
       totalLitres,
@@ -267,9 +314,21 @@ export default function Reports() {
       retailCount,
       fleetCount,
       meterTotalRevenue,
-      meterTotalLitres
+      meterTotalLitres,
+      // Profit Metrics
+      totalCOGS,
+      totalOperatingExpenses,
+      grossProfit,
+      netProfit,
+      netMarginPct,
+      profitPerLitre,
+      grossMarginPerLitre,
+      avgDieselBuyRate,
+      avgPetrolBuyRate,
+      avgDieselSellRate,
+      avgPetrolSellRate
     };
-  }, [filteredSales, filteredMeterReadings]);
+  }, [filteredSales, filteredMeterReadings, purchases, expenses]);
 
   // -------------------------------------------------------------------------
   // SALES TREND DATA FOR INTERACTIVE GRAPH (DAILY / WEEKLY / MONTHLY)
@@ -376,7 +435,7 @@ export default function Reports() {
       {/* 1. HERO BANNER WITH REALISTIC SALES BACKGROUND (SCREEN ONLY) */}
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[160px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
-        style={{ backgroundImage: "url('/sales_background.jpg')" }}
+        style={{ backgroundImage: "url('./sales_background.jpg')" }}
       >
         {/* Soft navy gradient overlay for contrast */}
         <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/55 to-transparent pointer-events-none"></div>
@@ -419,11 +478,11 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* 2. KPI SUMMARY CARDS STRIP (EXACTLY MATCHING SUPPLIERS & PURCHASES MODULE) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 no-print">
+      {/* 2. KPI SUMMARY CARDS STRIP WITH NET PROFIT & MARGIN METRICS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 no-print">
         
         {/* Card 1: Total Sales Revenue */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-blue-50 text-blue-600 border border-blue-200/60 flex items-center justify-center shrink-0 shadow-2xs">
             <DollarSign className="w-5 h-5" />
           </div>
@@ -431,20 +490,20 @@ export default function Reports() {
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block truncate">
               Total Sales Revenue
             </span>
-            <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-0.5 truncate font-mono">
+            <div className="text-lg sm:text-xl font-black text-slate-900 tracking-tight mt-0.5 truncate font-mono">
               {formatCurrency(overallSummary.totalRevenue)}
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-xs truncate">
               <span className="text-blue-600 font-bold font-mono">
                 {overallSummary.totalTransactions} Sales
               </span>
-              <span className="text-slate-400">&bull; Fuel &amp; Lubricants</span>
+              <span className="text-slate-400">&bull; Gross Billed</span>
             </div>
           </div>
         </div>
 
         {/* Card 2: Total Volume Dispensed */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200/60 flex items-center justify-center shrink-0 shadow-2xs">
             <Fuel className="w-5 h-5" />
           </div>
@@ -452,7 +511,7 @@ export default function Reports() {
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block truncate">
               Total Volume Dispensed
             </span>
-            <div className="text-xl sm:text-2xl font-black text-amber-700 tracking-tight mt-0.5 truncate font-mono">
+            <div className="text-lg sm:text-xl font-black text-amber-700 tracking-tight mt-0.5 truncate font-mono">
               {formatNumber(overallSummary.totalLitres, 0)} L
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-xs truncate">
@@ -464,44 +523,68 @@ export default function Reports() {
           </div>
         </div>
 
-        {/* Card 3: Spot Cash Collected */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200/60 flex items-center justify-center shrink-0 shadow-2xs">
-            <ArrowDownLeft className="w-5 h-5" />
+        {/* Card 3: Net Station Profit (HIGHLIGHT CARD) */}
+        <div className="bg-gradient-to-br from-emerald-50/80 to-teal-50/40 rounded-2xl border-2 border-emerald-500/40 p-4 sm:p-5 shadow-sm flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/30">
+            <TrendingUp className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block truncate">
-              Spot Cash Collected
-            </span>
-            <div className="text-xl sm:text-2xl font-black text-emerald-700 tracking-tight mt-0.5 truncate font-mono">
-              {formatCurrency(overallSummary.totalCash)}
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] font-black text-emerald-800 uppercase tracking-wider block truncate">
+                Net Profit (صافی منافع)
+              </span>
+              <span className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-mono font-bold shrink-0">
+                {overallSummary.netMarginPct}%
+              </span>
+            </div>
+            <div className="text-lg sm:text-xl font-black text-emerald-900 tracking-tight mt-0.5 truncate font-mono">
+              {formatCurrency(overallSummary.netProfit)}
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-xs truncate">
-              <span className="text-emerald-600 font-bold font-mono">
-                {overallSummary.cashSharePct}% Share
+              <span className="text-emerald-700 font-bold font-mono">
+                Rs. {overallSummary.profitPerLitre}/L
               </span>
-              <span className="text-slate-400">&bull; Nozzle &amp; Counter cash</span>
+              <span className="text-emerald-600/80">&bull; After expenses</span>
             </div>
           </div>
         </div>
 
-        {/* Card 4: Fleet Credit Sales (Receivable) */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
+        {/* Card 4: Operating Expenses */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200/60 flex items-center justify-center shrink-0 shadow-2xs">
+            <TrendingDown className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block truncate">
+              Operating Expenses
+            </span>
+            <div className="text-lg sm:text-xl font-black text-rose-700 tracking-tight mt-0.5 truncate font-mono">
+              {formatCurrency(overallSummary.totalOperatingExpenses)}
+            </div>
+            <div className="flex items-center gap-1.5 mt-1 text-xs truncate">
+              <span className="text-rose-600 font-bold font-mono">
+                COGS: {formatCurrency(overallSummary.totalCOGS)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 5: Cash vs Credit Receivables */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-600 border border-purple-200/60 flex items-center justify-center shrink-0 shadow-2xs">
             <Truck className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block truncate">
-              Fleet Credit Receivables
+              Spot Cash &amp; Credit
             </span>
-            <div className="text-xl sm:text-2xl font-black text-purple-700 tracking-tight mt-0.5 truncate font-mono">
+            <div className="text-lg sm:text-xl font-black text-purple-700 tracking-tight mt-0.5 truncate font-mono">
               {formatCurrency(overallSummary.totalCredit)}
             </div>
-            <div className="flex items-center gap-1.5 mt-1 text-xs truncate">
-              <span className="text-purple-600 font-bold font-mono">
-                {overallSummary.creditSharePct}% Share
+            <div className="flex items-center gap-1.5 mt-1 text-xs truncate font-mono">
+              <span className="text-emerald-700 font-bold">
+                Cash: {formatCurrency(overallSummary.totalCash)}
               </span>
-              <span className="text-slate-400">&bull; Billed to Ledgers</span>
             </div>
           </div>
         </div>
@@ -1058,22 +1141,42 @@ export default function Reports() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredSales.filter(s => !s.isRetail).map((s, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-mono text-slate-600">{formatDateDisplay(s.date)}</td>
-                    <td className="py-3 px-4 font-mono font-bold text-slate-900">{s.serialNo}</td>
-                    <td className="py-3 px-4 font-mono font-bold text-slate-800">{s.vehicleNo}</td>
-                    <td className="py-3 px-4 text-slate-600">{s.customerName || 'M.B GOODS'}</td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(s.litres, 2)} L</td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-600">Rs {formatNumber(s.rate, 2)}</td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900">{formatCurrency(s.dieselAmount)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-amber-700">{s.cashAdvance > 0 ? formatCurrency(s.cashAdvance) : '-'}</td>
-                    <td className="py-3 px-4 text-right font-mono font-black text-blue-900">{formatCurrency(s.totalAmount)}</td>
-                  </tr>
-                ))}
+                {(() => {
+                  const fleetList = filteredSales.filter(s => !s.isRetail);
+                  const paginatedFleet = fleetList.slice((truckPage - 1) * truckPageSize, truckPage * truckPageSize);
+                  if (paginatedFleet.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={9} className="py-8 text-center text-slate-400">
+                          No fleet truck challans found for this period.
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return paginatedFleet.map((s, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-mono text-slate-600">{formatDateDisplay(s.date)}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900">{s.serialNo}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-800">{s.vehicleNo}</td>
+                      <td className="py-3 px-4 text-slate-600">{s.customerName || 'M.B GOODS'}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(s.litres, 2)} L</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-600">Rs {formatNumber(s.rate, 2)}</td>
+                      <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900">{formatCurrency(s.dieselAmount)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-amber-700">{s.cashAdvance > 0 ? formatCurrency(s.cashAdvance) : '-'}</td>
+                      <td className="py-3 px-4 text-right font-mono font-black text-blue-900">{formatCurrency(s.totalAmount)}</td>
+                    </tr>
+                  ));
+                })()}
               </tbody>
             </table>
           </div>
+          <Pagination
+            currentPage={truckPage}
+            totalItems={filteredSales.filter(s => !s.isRetail).length}
+            pageSize={truckPageSize}
+            onPageChange={setTruckPage}
+            onPageSizeChange={setTruckPageSize}
+          />
         </div>
       )}
 
@@ -1107,35 +1210,54 @@ export default function Reports() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredSales.map((s, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-mono text-slate-600">{formatDateDisplay(s.date)}</td>
-                    <td className="py-3 px-4 font-mono font-bold text-slate-900">{s.serialNo || `SL-${s.id}`}</td>
-                    <td className="py-3 px-4 font-mono font-bold text-slate-800">{s.vehicleNo || 'Retail'}</td>
-                    <td className="py-3 px-4 text-slate-600">{s.isRetail ? 'Walk-in Retail' : (s.customerName || 'M.B GOODS')}</td>
-                    <td className="py-3 px-4">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        s.fuelType === 'Petrol' || s.fuelType === 'PMG' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {s.fuelType || 'Diesel'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(s.litres, 2)} L</td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-600">Rs {formatNumber(s.rate, 2)}</td>
-                    <td className="py-3 px-4 text-right font-mono text-amber-700">{s.cashAdvance > 0 ? formatCurrency(s.cashAdvance) : '-'}</td>
-                    <td className="py-3 px-4 text-right font-mono font-black text-blue-900">{formatCurrency(s.totalAmount)}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        s.isRetail || s.paymentType === 'Cash' ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-purple-800'
-                      }`}>
-                        {s.isRetail || s.paymentType === 'Cash' ? 'Cash' : 'Credit'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {(() => {
+                  const paginatedDetailed = filteredSales.slice((detailedPage - 1) * detailedPageSize, detailedPage * detailedPageSize);
+                  if (paginatedDetailed.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={10} className="py-8 text-center text-slate-400">
+                          No sales transactions found for this period.
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return paginatedDetailed.map((s, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-mono text-slate-600">{formatDateDisplay(s.date)}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900">{s.serialNo || `SL-${s.id}`}</td>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-800">{s.vehicleNo || 'Retail'}</td>
+                      <td className="py-3 px-4 text-slate-600">{s.isRetail ? 'Walk-in Retail' : (s.customerName || 'M.B GOODS')}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          s.fuelType === 'Petrol' || s.fuelType === 'PMG' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {s.fuelType || 'Diesel'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(s.litres, 2)} L</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-600">Rs {formatNumber(s.rate, 2)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-amber-700">{s.cashAdvance > 0 ? formatCurrency(s.cashAdvance) : '-'}</td>
+                      <td className="py-3 px-4 text-right font-mono font-black text-blue-900">{formatCurrency(s.totalAmount)}</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          s.isRetail || s.paymentType === 'Cash' ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {s.isRetail || s.paymentType === 'Cash' ? 'Cash' : 'Credit'}
+                        </span>
+                      </td>
+                    </tr>
+                  ));
+                })()}
               </tbody>
             </table>
           </div>
+          <Pagination
+            currentPage={detailedPage}
+            totalItems={filteredSales.length}
+            pageSize={detailedPageSize}
+            onPageChange={setDetailedPage}
+            onPageSizeChange={setDetailedPageSize}
+          />
         </div>
       )}
 
@@ -1144,17 +1266,19 @@ export default function Reports() {
       {/* ========================================================================= */}
       {isPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
-            {/* Top Modal Navigation Header Bar (SCREEN ONLY) */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2.5">
-                <BarChart3 className="w-5 h-5 text-blue-400" />
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
+            {/* Top Modal Navigation Header Bar (SCREEN ONLY - Clean White Style) */}
+            <div className="px-6 py-4 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
                     Station Sales Performance &amp; Analytics Audit Report
                   </h3>
-                  <span className="text-[11px] text-slate-300 font-normal">
-                    {periodLabel} &bull; Printable Corporate A4 Document
+                  <span className="text-[11px] text-slate-500 font-normal">
+                    {periodLabel} &bull; Printable Corporate A4 Document with Profit &amp; Loss
                   </span>
                 </div>
               </div>
@@ -1163,7 +1287,7 @@ export default function Reports() {
                 <button
                   type="button"
                   onClick={handleExportCSV}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all shadow-xs"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Export Excel</span>
@@ -1171,11 +1295,14 @@ export default function Reports() {
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer border border-slate-700 transition-all shadow-xs"
-                  title="Save as PDF via system print preview"
+                  onClick={() => {
+                    const fname = `Diyal_Sales_Analytics_Report_${periodType}_${selectedDate || selectedMonth || 'Summary'}.pdf`;
+                    exportReportToPDF('sales-analytics-report', fname);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer border border-blue-200 transition-all shadow-xs"
+                  title="Directly save PDF file to your computer"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-blue-400" />
+                  <FileDown className="w-3.5 h-3.5 text-blue-600" />
                   <span>Save PDF</span>
                 </button>
 
@@ -1191,7 +1318,7 @@ export default function Reports() {
                 <button
                   type="button"
                   onClick={() => setIsPrintModalOpen(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer ml-1"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer ml-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1203,19 +1330,17 @@ export default function Reports() {
               {/* Header: Diyal Filling Station */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4 border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-100 shadow-xs flex items-center justify-center shrink-0">
-                    <img 
-                      src="/logo.jpg" 
-                      alt="Diyal Logo" 
-                      className="w-full h-full object-contain"
-                      onError={e => { e.target.src = '/logo.png'; }}
-                    />
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight leading-tight uppercase font-sans">
+                  <img 
+                    src="./logo.png" 
+                    alt="Diyal Logo" 
+                    className="h-12 sm:h-14 w-auto object-contain shrink-0 drop-shadow-xs"
+                    onError={e => { e.target.src = './logo.jpg'; }}
+                  />
+                  <div className="flex flex-col leading-none">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-wider uppercase font-sans">
                       DIYAL
                     </h2>
-                    <h3 className="text-xs font-black tracking-widest text-[#C32026] uppercase">
+                    <h3 className="text-xs font-bold tracking-widest text-[#C32026] uppercase mt-0.5">
                       FILLING STATION
                     </h3>
                   </div>
@@ -1241,13 +1366,13 @@ export default function Reports() {
               <div className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 block">
-                    Official Station Revenue Audit
+                    Official Station Revenue &amp; Profit Audit Statement
                   </span>
                   <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
-                    Station Sales Performance &amp; Analytics Audit Statement
+                    Station Sales Performance &amp; Profit &amp; Loss Audit
                   </h1>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Official audit of electronic meter dispensing, company fleet sales &amp; settlement shares
+                    Verified sales reconciliation, dealer margins, operating expenses &amp; net station earnings
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1260,27 +1385,69 @@ export default function Reports() {
                 </div>
               </div>
 
-              {/* 4 Financial KPI Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-5 font-mono">
+              {/* 5 Financial KPI Summary Cards including Net Profit */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 my-4 font-mono">
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="text-[10px] uppercase font-bold text-slate-500 font-sans block">Total Revenue</span>
-                  <span className="text-base sm:text-lg font-black text-slate-900">{formatCurrency(overallSummary.totalRevenue)}</span>
-                  <span className="text-[10px] text-slate-400 block font-sans">Gross Sales Volume</span>
+                  <span className="text-sm sm:text-base font-black text-slate-900">{formatCurrency(overallSummary.totalRevenue)}</span>
+                  <span className="text-[9px] text-slate-400 block font-sans">Gross Sales</span>
                 </div>
                 <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200">
-                  <span className="text-[10px] uppercase font-bold text-amber-700 font-sans block">Total Litres Dispensed</span>
-                  <span className="text-base sm:text-lg font-black text-amber-900">{formatNumber(overallSummary.totalLitres, 0)} L</span>
-                  <span className="text-[10px] text-amber-700 block font-sans">HSD: {formatNumber(overallSummary.dieselLitres, 0)} | PMG: {formatNumber(overallSummary.petrolLitres, 0)}</span>
+                  <span className="text-[10px] uppercase font-bold text-amber-700 font-sans block">Total Litres</span>
+                  <span className="text-sm sm:text-base font-black text-amber-900">{formatNumber(overallSummary.totalLitres, 0)} L</span>
+                  <span className="text-[9px] text-amber-700 block font-sans">HSD + PMG</span>
                 </div>
-                <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200">
-                  <span className="text-[10px] uppercase font-bold text-emerald-700 font-sans block">Spot Cash Collected</span>
-                  <span className="text-base sm:text-lg font-black text-emerald-900">{formatCurrency(overallSummary.totalCash)}</span>
-                  <span className="text-[10px] text-emerald-700 block font-sans">{overallSummary.cashSharePct}% Cash Share</span>
+                <div className="p-3 rounded-xl bg-rose-50/60 border border-rose-200">
+                  <span className="text-[10px] uppercase font-bold text-rose-700 font-sans block">Operating Exp.</span>
+                  <span className="text-sm sm:text-base font-black text-rose-900">{formatCurrency(overallSummary.totalOperatingExpenses)}</span>
+                  <span className="text-[9px] text-rose-700 block font-sans">Daily Roznamcha</span>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50 border-2 border-emerald-500 shadow-xs col-span-2 sm:col-span-1">
+                  <span className="text-[10px] uppercase font-extrabold text-emerald-700 font-sans block">Net Profit (منافع)</span>
+                  <span className={`text-sm sm:text-base font-black ${overallSummary.netProfit >= 0 ? 'text-emerald-950' : 'text-rose-700'}`}>
+                    {formatCurrency(overallSummary.netProfit)}
+                  </span>
+                  <span className="text-[9px] font-bold text-emerald-800 block font-sans">
+                    {overallSummary.netMarginPct}% Net | Rs {formatNumber(overallSummary.profitPerLitre, 2)}/L
+                  </span>
                 </div>
                 <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-200">
-                  <span className="text-[10px] uppercase font-bold text-purple-700 font-sans block">Fleet Credit Ledger</span>
-                  <span className="text-base sm:text-lg font-black text-purple-900">{formatCurrency(overallSummary.totalCredit)}</span>
-                  <span className="text-[10px] text-purple-700 block font-sans">{overallSummary.creditSharePct}% Credit Share</span>
+                  <span className="text-[10px] uppercase font-bold text-purple-700 font-sans block">Cash / Credit</span>
+                  <span className="text-xs sm:text-sm font-black text-purple-900">
+                    {overallSummary.cashSharePct}% / {overallSummary.creditSharePct}%
+                  </span>
+                  <span className="text-[9px] text-purple-700 block font-sans">Settlement Share</span>
+                </div>
+              </div>
+
+              {/* Profit & Loss Breakdown Box */}
+              <div className="p-3.5 bg-gradient-to-r from-emerald-50/60 via-slate-50 to-blue-50/60 border border-emerald-200/80 rounded-xl mb-4 font-mono text-xs">
+                <div className="font-sans font-bold text-slate-900 mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>Executive Profit &amp; Loss Breakdown (آمدن و منافع کا خلاصہ)</span>
+                  </span>
+                  <span className="text-[11px] font-normal text-slate-500">
+                    Gross Dealer Margin: Rs {formatNumber(overallSummary.grossMarginPerLitre, 2)}/L
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-700">
+                  <div className="p-2 bg-white rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 block font-sans">Total Sales Revenue</span>
+                    <span className="font-bold text-slate-900">{formatCurrency(overallSummary.totalRevenue)}</span>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 block font-sans">Cost of Goods (COGS Fuel)</span>
+                    <span className="font-bold text-slate-700">{formatCurrency(overallSummary.totalCOGS)}</span>
+                  </div>
+                  <div className="p-2 bg-white rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 block font-sans">Gross Fuel Margin</span>
+                    <span className="font-bold text-blue-900">{formatCurrency(overallSummary.grossProfit)}</span>
+                  </div>
+                  <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-300">
+                    <span className="text-[10px] font-bold text-emerald-800 block font-sans">Net Profit After Expenses</span>
+                    <span className="font-black text-emerald-950">{formatCurrency(overallSummary.netProfit)}</span>
+                  </div>
                 </div>
               </div>
 

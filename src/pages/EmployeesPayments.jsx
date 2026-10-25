@@ -28,6 +28,8 @@ import {
   ArrowUpRight
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDateDisplay, exportToCSV } from '../utils/formatters';
+import { exportReportToPDF } from '../utils/pdfExport';
+import Pagination from '../components/Pagination';
 
 export const STAFF_ROLES = [
   'Pump Attendant',
@@ -43,6 +45,12 @@ export default function EmployeesPayments() {
   const [selectedMonth, setSelectedMonth] = useState('2026-10');
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('All');
+
+  // Pagination states
+  const [empPage, setEmpPage] = useState(1);
+  const [empPageSize, setEmpPageSize] = useState(10);
+  const [payPage, setPayPage] = useState(1);
+  const [payPageSize, setPayPageSize] = useState(10);
 
   // Modals
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
@@ -90,7 +98,7 @@ export default function EmployeesPayments() {
   const settingsList = useLiveQuery(() => db.settings.toArray(), []);
 
   const pumpName = settingsList?.find(s => s.key === 'pumpName')?.value || 'DIYAL FILLING STATION';
-  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Jhumra City';
+  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Chak Jhumra, FSD.';
   const pumpPhone = settingsList?.find(s => s.key === 'pumpPhone')?.value || '+92 300 7654321 | +92 321 9876543';
 
   // -------------------------------------------------------------------------
@@ -193,6 +201,17 @@ export default function EmployeesPayments() {
       return true;
     });
   }, [employeePayments, searchQuery]);
+
+  // Paginated Slices
+  const paginatedEmployees = useMemo(() => {
+    const start = (empPage - 1) * empPageSize;
+    return filteredEmployees.slice(start, start + empPageSize);
+  }, [filteredEmployees, empPage, empPageSize]);
+
+  const paginatedPayments = useMemo(() => {
+    const start = (payPage - 1) * payPageSize;
+    return filteredPayments.slice(start, start + payPageSize);
+  }, [filteredPayments, payPage, payPageSize]);
 
   // -------------------------------------------------------------------------
   // EMPLOYEE ADD / EDIT HANDLERS
@@ -472,7 +491,7 @@ export default function EmployeesPayments() {
       {/* 1. HERO BANNER WITH REALISTIC BACKGROUND (SCREEN ONLY) */}
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[160px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
-        style={{ backgroundImage: "url('/meter_background.jpg')" }}
+        style={{ backgroundImage: "url('./meter_background.jpg')" }}
       >
         {/* Soft navy gradient overlay for contrast */}
         <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/55 to-transparent pointer-events-none"></div>
@@ -742,7 +761,7 @@ export default function EmployeesPayments() {
                       </td>
                     </tr>
                   ) : (
-                    filteredEmployees.map((emp) => (
+                    paginatedEmployees.map((emp) => (
                       <tr key={emp.id} className="hover:bg-slate-50/80 transition-colors">
                         {/* Name & ID */}
                         <td className="py-3 px-3.5 whitespace-nowrap">
@@ -875,6 +894,14 @@ export default function EmployeesPayments() {
                 </tfoot>
               </table>
             </div>
+
+            <Pagination 
+              currentPage={empPage}
+              totalItems={filteredEmployees.length}
+              pageSize={empPageSize}
+              onPageChange={setEmpPage}
+              onPageSizeChange={(sz) => { setEmpPageSize(sz); setEmpPage(1); }}
+            />
           </div>
 
         </div>
@@ -926,7 +953,7 @@ export default function EmployeesPayments() {
                     </td>
                   </tr>
                 ) : (
-                  filteredPayments.map((p, idx) => (
+                  paginatedPayments.map((p, idx) => (
                     <tr key={p.id || idx} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 font-mono text-slate-600 whitespace-nowrap">{formatDateDisplay(p.date)}</td>
                       <td className="py-3 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">{p.voucherNo || `VCH-${p.id}`}</td>
@@ -971,6 +998,14 @@ export default function EmployeesPayments() {
               </tbody>
             </table>
           </div>
+
+          <Pagination 
+            currentPage={payPage}
+            totalItems={filteredPayments.length}
+            pageSize={payPageSize}
+            onPageChange={setPayPage}
+            onPageSizeChange={(sz) => { setPayPageSize(sz); setPayPage(1); }}
+          />
         </div>
       )}
 
@@ -1448,16 +1483,18 @@ export default function EmployeesPayments() {
       {/* ========================================================================= */}
       {isPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
-            {/* Top Modal Navigation Header Bar (SCREEN ONLY) */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2.5">
-                <UserCheck className="w-5 h-5 text-blue-400" />
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
+            {/* Top Modal Navigation Header Bar (SCREEN ONLY - Clean White Style) */}
+            <div className="px-6 py-4 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
+                  <UserCheck className="w-5 h-5 text-blue-600" />
+                </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
                     Staff Payroll Register &amp; Wage Disbursement Report
                   </h3>
-                  <span className="text-[11px] text-slate-300 font-normal">
+                  <span className="text-[11px] text-slate-500 font-normal">
                     Payroll Month: {selectedMonth} &bull; Printable Corporate A4 Document
                   </span>
                 </div>
@@ -1467,7 +1504,7 @@ export default function EmployeesPayments() {
                 <button
                   type="button"
                   onClick={handleExportStaffCSV}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all shadow-xs"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Export Excel</span>
@@ -1475,11 +1512,14 @@ export default function EmployeesPayments() {
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer border border-slate-700 transition-all shadow-xs"
-                  title="Save as PDF via system print preview"
+                  onClick={() => {
+                    const fname = `Diyal_Staff_Payroll_${selectedMonth}.pdf`;
+                    exportReportToPDF('payroll-print-report', fname);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer border border-blue-200 transition-all shadow-xs"
+                  title="Directly save PDF file to your computer"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-blue-400" />
+                  <FileDown className="w-3.5 h-3.5 text-blue-600" />
                   <span>Save PDF</span>
                 </button>
 
@@ -1495,7 +1535,7 @@ export default function EmployeesPayments() {
                 <button
                   type="button"
                   onClick={() => setIsPrintModalOpen(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer ml-1"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer ml-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1507,19 +1547,17 @@ export default function EmployeesPayments() {
               {/* Diyal Filling Station Header */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4 border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-100 shadow-xs flex items-center justify-center shrink-0">
-                    <img 
-                      src="/logo.jpg" 
-                      alt="Diyal Logo" 
-                      className="w-full h-full object-contain"
-                      onError={e => { e.target.src = '/logo.png'; }}
-                    />
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight leading-tight uppercase font-sans">
+                  <img 
+                    src="./logo.png" 
+                    alt="Diyal Logo" 
+                    className="h-12 sm:h-14 w-auto object-contain shrink-0 drop-shadow-xs"
+                    onError={e => { e.target.src = './logo.jpg'; }}
+                  />
+                  <div className="flex flex-col leading-none">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-wider uppercase font-sans">
                       DIYAL
                     </h2>
-                    <h3 className="text-xs font-black tracking-widest text-[#C32026] uppercase">
+                    <h3 className="text-xs font-bold tracking-widest text-[#C32026] uppercase mt-0.5">
                       FILLING STATION
                     </h3>
                   </div>

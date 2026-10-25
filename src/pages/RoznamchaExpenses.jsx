@@ -29,9 +29,13 @@ import {
   Fuel,
   Truck,
   FileSpreadsheet,
-  Coins
+  Coins,
+  RotateCcw,
+  Sparkles
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDateDisplay, exportToCSV } from '../utils/formatters';
+import { exportReportToPDF } from '../utils/pdfExport';
+import Pagination from '../components/Pagination';
 
 export const ROZNAMCHA_CATEGORIES = [
   'Donations',
@@ -45,11 +49,69 @@ export const ROZNAMCHA_CATEGORIES = [
   'Other Approved Business Expenses'
 ];
 
+const DENOMINATIONS_LIST = [5000, 1000, 500, 100, 50, 20, 10];
+
 export default function RoznamchaExpenses() {
   const [activeTab, setActiveTab] = useState('roznamcha'); // 'roznamcha' or 'expenses'
   const [selectedDate, setSelectedDate] = useState('2026-10-02');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Physical Drawer Denominations State - User Enters Count Manually
+  const [userDenominations, setUserDenominations] = useState(() => {
+    try {
+      const saved = localStorage.getItem('diyal_drawer_denom_2026-10-02');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return { 5000: '', 1000: '', 500: '', 100: '', 50: '', 20: '', 10: '', coins: '' };
+  });
+
+  // Sync denominations when selected date changes
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`diyal_drawer_denom_${selectedDate}`);
+      if (saved) {
+        setUserDenominations(JSON.parse(saved));
+        return;
+      }
+    } catch (e) {}
+    setUserDenominations({ 5000: '', 1000: '', 500: '', 100: '', 50: '', 20: '', 10: '', coins: '' });
+  }, [selectedDate]);
+
+  const handleUpdateDenomination = (denom, val) => {
+    const cleanVal = val === '' ? '' : Math.max(0, parseInt(val, 10) || 0);
+    const updated = { ...userDenominations, [denom]: cleanVal };
+    setUserDenominations(updated);
+    try {
+      localStorage.setItem(`diyal_drawer_denom_${selectedDate}`, JSON.stringify(updated));
+    } catch (e) {}
+  };
+
+  const handleAutoFillDrawer = (expectedCash) => {
+    let rem = Math.max(0, Math.round(expectedCash));
+    const counts = {};
+    DENOMINATIONS_LIST.forEach(d => {
+      counts[d] = Math.floor(rem / d);
+      rem = rem % d;
+    });
+    counts['coins'] = rem;
+    setUserDenominations(counts);
+    try {
+      localStorage.setItem(`diyal_drawer_denom_${selectedDate}`, JSON.stringify(counts));
+    } catch (e) {}
+  };
+
+  const handleClearDrawer = () => {
+    const empty = { 5000: '', 1000: '', 500: '', 100: '', 50: '', 20: '', 10: '', coins: '' };
+    setUserDenominations(empty);
+    try {
+      localStorage.removeItem(`diyal_drawer_denom_${selectedDate}`);
+    } catch (e) {}
+  };
+
+  // Pagination states for operating expenses table
+  const [expPage, setExpPage] = useState(1);
+  const [expPageSize, setExpPageSize] = useState(15);
   
   // Modals
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -79,7 +141,7 @@ export default function RoznamchaExpenses() {
   const settingsList = useLiveQuery(() => db.settings.toArray(), []);
 
   const pumpName = settingsList?.find(s => s.key === 'pumpName')?.value || 'DIYAL FILLING STATION';
-  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Jhumra City';
+  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Chak Jhumra, FSD.';
   const pumpPhone = settingsList?.find(s => s.key === 'pumpPhone')?.value || '+92 300 7654321 | +92 321 9876543';
 
   // Navigation handlers for date
@@ -424,13 +486,31 @@ export default function RoznamchaExpenses() {
     exportToCSV(`roznamcha_${selectedDate}.csv`, headers, rows);
   };
 
+  // Calculate physical drawer total counted by user
+  const physicalDrawerTotal = useMemo(() => {
+    let sum = 0;
+    DENOMINATIONS_LIST.forEach(d => {
+      const cnt = Number(userDenominations[d]) || 0;
+      sum += cnt * d;
+    });
+    sum += Number(userDenominations['coins']) || 0;
+    return sum;
+  }, [userDenominations]);
+
+  const hasDrawerEntries = useMemo(() => {
+    return Object.values(userDenominations).some(v => v !== '' && Number(v) > 0);
+  }, [userDenominations]);
+
+  const expectedSafeCash = dailyRoznamcha.closingCash;
+  const drawerDifference = physicalDrawerTotal - expectedSafeCash;
+
   return (
     <div className="space-y-5 pb-12">
       
       {/* 1. HERO BANNER WITH REALISTIC SALES BACKGROUND (SCREEN ONLY) */}
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[160px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
-        style={{ backgroundImage: "url('/sales_background.jpg')" }}
+        style={{ backgroundImage: "url('./sales_background.jpg')" }}
       >
         {/* Soft navy gradient overlay for perfect contrast */}
         <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/55 to-transparent pointer-events-none"></div>
@@ -575,10 +655,29 @@ export default function RoznamchaExpenses() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200 font-mono">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Drawer Status: 100% Balanced</span>
-          </span>
+          {hasDrawerEntries ? (
+            drawerDifference === 0 ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200 font-mono">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Physical Drawer: Exact Match (Diff Rs 0)</span>
+              </span>
+            ) : drawerDifference < 0 ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-800 text-xs font-bold border border-rose-200 font-mono">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                <span>Physical Drawer: Shortage ({formatCurrency(Math.abs(drawerDifference))})</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 text-xs font-bold border border-amber-200 font-mono">
+                <Coins className="w-3.5 h-3.5 text-amber-600" />
+                <span>Physical Drawer: Surplus (+{formatCurrency(drawerDifference)})</span>
+              </span>
+            )
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200 font-mono">
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+              <span>System Expected Safe: {formatCurrency(expectedSafeCash)}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -791,13 +890,14 @@ export default function RoznamchaExpenses() {
           </div>
 
           {/* CASH DRAWER PHYSICAL RECONCILIATION & SAFE AUDIT BLOCK */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-5">
+            {/* Header & Status Indicator */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200/80 gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-emerald-600" />
                   <h3 className="text-base font-bold text-slate-900">
-                    Cash Drawer Safe Audit &amp; Physical Reconciliation
+                    Cash Drawer Safe Audit &amp; Physical Reconciliation (کیش دراز آڈٹ)
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -805,13 +905,32 @@ export default function RoznamchaExpenses() {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-bold font-mono">
-                  Reconciliation: Matched (Variance Rs 0)
-                </span>
+                {hasDrawerEntries ? (
+                  drawerDifference === 0 ? (
+                    <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-bold font-mono flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Physical Drawer: 100% Matched (Rs 0 Diff)</span>
+                    </span>
+                  ) : drawerDifference < 0 ? (
+                    <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-900 text-xs font-bold font-mono flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Physical Drawer: Shortage (-{formatCurrency(Math.abs(drawerDifference))})</span>
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold font-mono flex items-center gap-1.5">
+                      <Coins className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Physical Drawer: Surplus (+{formatCurrency(drawerDifference)})</span>
+                    </span>
+                  )
+                ) : (
+                  <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-800 text-xs font-bold font-mono border border-blue-200">
+                    System Expected Safe: {formatCurrency(expectedSafeCash)}
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Reconciliation Breakdown Row */}
+            {/* 4 Financial Reconciliation Summary Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center font-mono">
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
                 <span className="text-[10px] text-slate-500 uppercase font-bold font-sans block">Opening Cash Float</span>
@@ -826,37 +945,143 @@ export default function RoznamchaExpenses() {
                 <span className="text-base font-black text-rose-700">-{formatCurrency(dailyRoznamcha.totalCashOut)}</span>
               </div>
               <div className="p-3.5 rounded-xl bg-purple-50/70 border border-purple-200">
-                <span className="text-[10px] text-purple-800 uppercase font-bold font-sans block">(=) Reconciled Cash in Safe</span>
-                <span className="text-lg font-black text-purple-700">{formatCurrency(dailyRoznamcha.closingCash)}</span>
+                <span className="text-[10px] text-purple-800 uppercase font-bold font-sans block">(=) Expected Cash in Safe</span>
+                <span className="text-lg font-black text-purple-700">{formatCurrency(expectedSafeCash)}</span>
               </div>
             </div>
 
-            {/* Denominations breakdown pill strip */}
-            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-1.5 font-sans font-bold text-slate-700">
-                <Coins className="w-4 h-4 text-amber-600" />
-                <span>Physical Drawer Denominations:</span>
+            {/* Interactive Physical Drawer Denominations Entry Form (User Enters Count) */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100/60 border border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Coins className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                      Physical Cash Drawer Denominations (فزیکل کیش کا اندراج)
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Enter the exact note count counted from the physical cash drawer to compare with system safe cash.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleAutoFillDrawer(expectedSafeCash)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-2xs"
+                    title="Auto-fill note count based on system expected cash"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Auto-Fill Expected</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleClearDrawer}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                    title="Clear all counted notes to zero"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Clear</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200">
-                  Rs 5000 &times; {dailyRoznamcha.denominations[5000]}
-                </span>
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200">
-                  Rs 1000 &times; {dailyRoznamcha.denominations[1000]}
-                </span>
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200">
-                  Rs 500 &times; {dailyRoznamcha.denominations[500]}
-                </span>
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200">
-                  Rs 100 &times; {dailyRoznamcha.denominations[100]}
-                </span>
-                <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200">
-                  Change &bull; Rs {dailyRoznamcha.denominations[50] * 50 + dailyRoznamcha.denominations[20] * 20 + dailyRoznamcha.denominations[10] * 10 + dailyRoznamcha.denominations.coins}
-                </span>
-                <span className="px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold">
-                  Total Safe Match: {formatCurrency(dailyRoznamcha.closingCash)}
-                </span>
+
+              {/* 8 Denominations Interactive Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 font-mono">
+                {DENOMINATIONS_LIST.map((denom) => {
+                  const count = userDenominations[denom];
+                  const totalVal = (Number(count) || 0) * denom;
+                  return (
+                    <div 
+                      key={denom} 
+                      className="p-2.5 bg-white rounded-xl border border-slate-200/90 shadow-2xs flex flex-col justify-between hover:border-blue-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-slate-700 font-sans">Rs {denom}</span>
+                        <span className="text-[10px] text-slate-400">note</span>
+                      </div>
+                      <div className="my-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="0"
+                          value={count ?? ''}
+                          onChange={(e) => handleUpdateDenomination(denom, e.target.value)}
+                          className="w-full text-center py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-black text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 transition-all"
+                        />
+                      </div>
+                      <div className="text-[10px] text-right font-bold text-blue-900 truncate">
+                        = {formatCurrency(totalVal)}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Coins Input Box */}
+                <div className="p-2.5 bg-white rounded-xl border border-slate-200/90 shadow-2xs flex flex-col justify-between hover:border-blue-300 transition-all">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-amber-700 font-sans">Coins</span>
+                    <span className="text-[10px] text-slate-400">سکے</span>
+                  </div>
+                  <div className="my-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={userDenominations['coins'] ?? ''}
+                      onChange={(e) => handleUpdateDenomination('coins', e.target.value)}
+                      className="w-full text-center py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-black text-slate-900 focus:bg-white focus:outline-none focus:border-blue-500 transition-all"
+                    />
+                  </div>
+                  <div className="text-[10px] text-right font-bold text-amber-900 truncate">
+                    = {formatCurrency(Number(userDenominations['coins']) || 0)}
+                  </div>
+                </div>
               </div>
+
+              {/* Bottom Comparison & Audit Verification Banner */}
+              <div className="p-3.5 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-4 font-mono">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-sans uppercase font-bold">Physical Drawer Total</span>
+                    <span className="text-base font-black text-slate-900">{formatCurrency(physicalDrawerTotal)}</span>
+                  </div>
+                  <div className="text-slate-300 font-sans font-bold text-lg hidden sm:block">vs</div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-sans uppercase font-bold">System Expected Safe</span>
+                    <span className="text-base font-black text-purple-900">{formatCurrency(expectedSafeCash)}</span>
+                  </div>
+                </div>
+
+                <div className="font-mono flex items-center gap-2">
+                  <span className="text-[11px] font-sans font-bold text-slate-500">Audit Reconciliation:</span>
+                  {!hasDrawerEntries ? (
+                    <span className="px-3 py-1 rounded-lg bg-slate-100 text-slate-600 font-sans text-xs">
+                      Enter physical note counts to verify safe balance
+                    </span>
+                  ) : drawerDifference === 0 ? (
+                    <span className="px-3.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>100% Balanced (فرق Rs 0)</span>
+                    </span>
+                  ) : drawerDifference < 0 ? (
+                    <span className="px-3.5 py-1 rounded-lg bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>Cash Shortage: {formatCurrency(Math.abs(drawerDifference))}</span>
+                    </span>
+                  ) : (
+                    <span className="px-3.5 py-1 rounded-lg bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs">
+                      <Coins className="w-4 h-4" />
+                      <span>Cash Surplus: +{formatCurrency(drawerDifference)}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
             </div>
           </div>
 
@@ -913,14 +1138,18 @@ export default function RoznamchaExpenses() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredExpenses.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
-                      No expense entries found matching the criteria.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredExpenses.map((exp) => (
+                {(() => {
+                  const paginatedExpenses = filteredExpenses.slice((expPage - 1) * expPageSize, expPage * expPageSize);
+                  if (paginatedExpenses.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={9} className="py-8 text-center text-slate-400">
+                          No expense entries found matching the criteria.
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return paginatedExpenses.map((exp) => (
                     <tr key={exp.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 font-mono text-slate-600 whitespace-nowrap">{formatDateDisplay(exp.date)}</td>
                       <td className="py-3 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">{exp.refNo || `EXP-${exp.id}`}</td>
@@ -965,11 +1194,19 @@ export default function RoznamchaExpenses() {
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
+                  ));
+                })()}
               </tbody>
             </table>
           </div>
+
+          <Pagination
+            currentPage={expPage}
+            totalItems={filteredExpenses.length}
+            pageSize={expPageSize}
+            onPageChange={setExpPage}
+            onPageSizeChange={setExpPageSize}
+          />
         </div>
       )}
 
@@ -978,17 +1215,19 @@ export default function RoznamchaExpenses() {
       {/* ========================================================================= */}
       {isPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
-            {/* Top Modal Navigation Header Bar (SCREEN ONLY) */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2.5">
-                <BookOpen className="w-5 h-5 text-blue-400" />
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
+            {/* Top Modal Navigation Header Bar (SCREEN ONLY - Clean White Style) */}
+            <div className="px-6 py-4 bg-white text-slate-800 border-b border-slate-200 flex items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
+                  <BookOpen className="w-5 h-5 text-blue-600" />
+                </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base">
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
                     Daily Cashbook &amp; Roznamcha Audit Report
                   </h3>
-                  <span className="text-[11px] text-slate-300 font-normal">
-                    Date: {formatDateDisplay(selectedDate)} &bull; Printable Corporate A4 Document
+                  <span className="text-[11px] text-slate-500 font-normal">
+                    Date: {formatDateDisplay(selectedDate)} &bull; Printable Corporate A4 Document with Drawer Audit
                   </span>
                 </div>
               </div>
@@ -997,7 +1236,7 @@ export default function RoznamchaExpenses() {
                 <button
                   type="button"
                   onClick={handleExportRoznamcha}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all shadow-xs"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Export Excel</span>
@@ -1005,11 +1244,14 @@ export default function RoznamchaExpenses() {
 
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer border border-slate-700 transition-all shadow-xs"
-                  title="Save as PDF via system print preview"
+                  onClick={() => {
+                    const fname = `Diyal_Daily_Roznamcha_${selectedDate}.pdf`;
+                    exportReportToPDF('roznamcha-print-report', fname);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer border border-blue-200 transition-all shadow-xs"
+                  title="Directly save PDF file to your computer"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-blue-400" />
+                  <FileDown className="w-3.5 h-3.5 text-blue-600" />
                   <span>Save PDF</span>
                 </button>
 
@@ -1025,7 +1267,7 @@ export default function RoznamchaExpenses() {
                 <button
                   type="button"
                   onClick={() => setIsPrintModalOpen(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer ml-1"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer ml-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1037,19 +1279,17 @@ export default function RoznamchaExpenses() {
               {/* Diyal Filling Station Header */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4 border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-100 shadow-xs flex items-center justify-center shrink-0">
-                    <img 
-                      src="/logo.jpg" 
-                      alt="Diyal Logo" 
-                      className="w-full h-full object-contain"
-                      onError={e => { e.target.src = '/logo.png'; }}
-                    />
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight leading-tight uppercase font-sans">
+                  <img 
+                    src="./logo.png" 
+                    alt="Diyal Logo" 
+                    className="h-12 sm:h-14 w-auto object-contain shrink-0 drop-shadow-xs"
+                    onError={e => { e.target.src = './logo.jpg'; }}
+                  />
+                  <div className="flex flex-col leading-none">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-wider uppercase font-sans">
                       DIYAL
                     </h2>
-                    <h3 className="text-xs font-black tracking-widest text-[#C32026] uppercase">
+                    <h3 className="text-xs font-bold tracking-widest text-[#C32026] uppercase mt-0.5">
                       FILLING STATION
                     </h3>
                   </div>
@@ -1201,20 +1441,71 @@ export default function RoznamchaExpenses() {
 
               </div>
 
-              {/* Safe Reconciliation Audit Summary */}
-              <div className="mt-4 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="space-y-0.5">
-                  <div className="font-sans font-bold text-slate-800">Cash Drawer Physical Audit:</div>
-                  <div className="text-slate-600 text-[11px]">
-                    Opening Float: {formatCurrency(dailyRoznamcha.openingCash)} &bull; Net Inflows/Outflows: {dailyRoznamcha.netCashMovement >= 0 ? `+${formatCurrency(dailyRoznamcha.netCashMovement)}` : formatCurrency(dailyRoznamcha.netCashMovement)}
+              {/* Safe & Physical Drawer Reconciliation Audit Summary */}
+              <div className="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-200">
+                  <div>
+                    <span className="font-sans font-bold text-slate-900 block">
+                      Physical Cash Drawer Reconciliation &amp; Safe Audit:
+                    </span>
+                    <span className="text-slate-500 text-[11px] font-sans">
+                      Opening Float: {formatCurrency(dailyRoznamcha.openingCash)} &bull; Net Cash Movement: {dailyRoznamcha.netCashMovement >= 0 ? `+${formatCurrency(dailyRoznamcha.netCashMovement)}` : formatCurrency(dailyRoznamcha.netCashMovement)}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 font-sans block">Expected Safe Balance</span>
+                    <span className="text-base font-black text-purple-900">
+                      {formatCurrency(expectedSafeCash)}
+                    </span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 font-sans block">Reconciled Safe Balance</span>
-                  <span className="text-lg font-black text-purple-900 font-mono">
-                    {formatCurrency(dailyRoznamcha.closingCash)}
-                  </span>
-                </div>
+
+                {/* If physical drawer denominations were entered by cashier */}
+                {hasDrawerEntries ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between font-sans text-[11px]">
+                      <span className="font-bold text-slate-700">Cashier Counted Denominations:</span>
+                      <span className="font-mono text-slate-600">
+                        Physical Drawer Counted: <strong className="text-slate-900">{formatCurrency(physicalDrawerTotal)}</strong>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 text-[10px] text-center">
+                      {DENOMINATIONS_LIST.map(d => (
+                        <div key={d} className="p-1.5 bg-white rounded border border-slate-200">
+                          <span className="text-slate-400 block">Rs {d}</span>
+                          <span className="font-bold text-slate-800">{userDenominations[d] || 0}</span>
+                        </div>
+                      ))}
+                      <div className="p-1.5 bg-white rounded border border-slate-200">
+                        <span className="text-slate-400 block">Coins</span>
+                        <span className="font-bold text-slate-800">Rs {userDenominations['coins'] || 0}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between font-sans text-xs">
+                      <span className="text-slate-600">Reconciliation Variance (فرق):</span>
+                      <span className={`font-mono font-bold ${
+                        drawerDifference === 0 
+                          ? 'text-emerald-700' 
+                          : drawerDifference < 0 
+                          ? 'text-rose-700' 
+                          : 'text-amber-700'
+                      }`}>
+                        {drawerDifference === 0 
+                          ? 'Exact Match (Rs 0 Diff - 100% Balanced)' 
+                          : drawerDifference < 0 
+                          ? `Cash Shortage: -${formatCurrency(Math.abs(drawerDifference))}` 
+                          : `Cash Surplus: +${formatCurrency(drawerDifference)}`
+                        }
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-500 font-sans italic">
+                    Physical drawer note count matched with system opening + net movement.
+                  </div>
+                )}
               </div>
 
               {/* 3-Tier Sign-Off Footer */}

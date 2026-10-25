@@ -391,7 +391,7 @@ export default function TruckChallans({ onOpenPaymentModal }) {
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[160px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
         style={{
-          backgroundImage: "url('/sales_background.jpg')"
+          backgroundImage: "url('./sales_background.jpg')"
         }}
       >
         {/* Soft gradient overlay on left for maximum text & icon contrast */}

@@ -262,56 +262,133 @@ export const oct2026RawSales = [
   { date: '2026-10-13', serialNo: '1000', vehicleNo: '232', type: 'Diesel', litres: 162, rate: 397.45, dieselAmount: 64387, cash: 3000, mobilOil: 0 },
 ];
 
-export async function seedInitialData(force = false) {
-  const customerCount = await db.customers.count();
-  if (customerCount > 0 && !force) {
-    return; // Already initialized
+// 1. Ensure minimal system defaults exist (Admin login + basic station settings + 0-stock tanks)
+// Starts with ZERO sales, ZERO customers, ZERO meter readings, ZERO expenses.
+export async function ensureSystemInitialized() {
+  // Ensure User Accounts for Desktop Login Authentication exist
+  const userCount = await db.users.count();
+  if (userCount === 0) {
+    const adminHash = await hashPassword('admin');
+    await db.users.bulkPut([
+      {
+        id: 1,
+        username: 'admin',
+        passwordHash: adminHash,
+        name: 'Station Administrator',
+        role: 'Administrator',
+        status: 'Active',
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 2,
+        username: 'cashier',
+        passwordHash: adminHash,
+        name: 'Naveed Akhtar',
+        role: 'Cashier',
+        status: 'Active',
+        createdAt: new Date().toISOString()
+      }
+    ]);
   }
 
-  // Clear existing if force
-  if (force) {
-    for (const table of db.tables) {
-      await table.clear();
-    }
+  // Ensure default Settings exist
+  const settingsCount = await db.settings.count();
+  if (settingsCount === 0) {
+    await db.settings.bulkPut([
+      { key: 'pumpName', value: 'DIYAL FILLING STATION' },
+      { key: 'pumpTagline', value: 'Authorized Petroleum Dealer • تیل خالص، پیمانہ پورا، معیاری سروس کی ضمانت' },
+      { key: 'pumpPhone', value: '0300-7654321' },
+      { key: 'pumpPhonePrimary', value: '0300-7654321' },
+      { key: 'pumpPhoneSecondary', value: '0321-9876543' },
+      { key: 'proprietor1', value: 'Chaudhry Diyal Muhammad (0300-1122334)' },
+      { key: 'proprietor2', value: 'Haji Naveed Akhtar (0321-5566778)' },
+      { key: 'pumpAddress', value: 'Chiniot Road, Chak Jhumra, FSD.' },
+      { key: 'pumpCity', value: 'Faisalabad / Punjab' },
+      { key: 'pumpNTN', value: 'NTN-4829103-7' },
+      { key: 'pumpEmail', value: 'diyal.station@gmail.com' },
+      { key: 'githubRepo', value: 'CS24786/Petrol-Pump' },
+      { key: 'currency', value: 'PKR' },
+      { key: 'printPaperWidth', value: '80mm' },
+      { key: 'autoPrintReceipt', value: false },
+      { key: 'currentShiftNumber', value: 'Shift 1' }
+    ]);
+  } else {
+    // Keep pumpAddress updated with official address
+    await db.settings.put({ key: 'pumpAddress', value: 'Chiniot Road, Chak Jhumra, FSD.' });
   }
 
-  // 0. User Accounts for Desktop Login Authentication
-  const adminHash = await hashPassword('admin');
-  await db.users.bulkPut([
-    {
-      id: 1,
-      username: 'admin',
-      passwordHash: adminHash,
-      name: 'Station Administrator',
-      role: 'Administrator',
-      status: 'Active',
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 2,
-      username: 'cashier',
-      passwordHash: adminHash,
-      name: 'Naveed Akhtar',
-      role: 'Cashier',
-      status: 'Active',
-      createdAt: new Date().toISOString()
+  // Ensure standard fuel dispensing rates exist
+  const ratesCount = await db.fuelRates.count();
+  if (ratesCount === 0) {
+    await db.fuelRates.bulkAdd([
+      { fuelType: 'Diesel', rate: 397.45, effectiveDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() },
+      { fuelType: 'Petrol', rate: 400.66, effectiveDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() },
+      { fuelType: 'Mobil Oil', rate: 1250.00, effectiveDate: new Date().toISOString().split('T')[0], updatedAt: new Date().toISOString() }
+    ]);
+  }
+
+  // One-time initialization to start system in clean 0 state for tanks, nozzles, sales, customers, etc.
+  const hasZeroInitRun = localStorage.getItem('PP_ZERO_CLEAN_INIT_DONE_V2') === 'true';
+  const sampleActive = localStorage.getItem('PP_SAMPLE_DATA_LOADED') === 'true' || localStorage.getItem('PP_IS_SAMPLE_LOADED') === 'true';
+  
+  if (!hasZeroInitRun && !sampleActive) {
+    await wipeAllData(true);
+    localStorage.setItem('PP_ZERO_CLEAN_INIT_DONE_V2', 'true');
+  }
+}
+
+// 2. Wipe All Transactional Data (Start Fresh with 0 records for real production pump use)
+export async function wipeAllData(preserveProfileAndUsers = true) {
+  const transactionalTables = [
+    'sales',
+    'customers',
+    'vehicles',
+    'ledgerEntries',
+    'meterReadings',
+    'purchases',
+    'suppliers',
+    'supplierPayments',
+    'expenses',
+    'shifts',
+    'stockAdjustments',
+    'summaryChallans',
+    'employees',
+    'employeePayments',
+    'officeRents',
+    'auditLogs',
+    'tanks',
+    'nozzles'
+  ];
+
+  await db.transaction('rw', transactionalTables.map(t => db.table(t)), async () => {
+    for (const t of transactionalTables) {
+      const table = db.table(t);
+      if (table) {
+        await table.clear();
+      }
     }
-  ]);
+  });
 
-  // 1. Settings
-  await db.settings.bulkPut([
-    { key: 'pumpName', value: 'DIYAL FILLING STATION' },
-    { key: 'pumpTagline', value: 'Authorized Petroleum Dealer' },
-    { key: 'pumpAddress', value: 'Main Highway Bypass, Near Freight Hub' },
-    { key: 'pumpPhone', value: '+92 300 7654321 / +92 321 9876543' },
-    { key: 'pumpNTN', value: '4829103-7' },
-    { key: 'currency', value: 'PKR' },
-    { key: 'printPaperWidth', value: '80mm' },
-    { key: 'autoPrintReceipt', value: false },
-    { key: 'currentShiftNumber', value: 'Shift 1' }
-  ]);
+  if (!preserveProfileAndUsers) {
+    await db.users.clear();
+    await db.settings.clear();
+    await ensureSystemInitialized();
+  }
 
-  // 2. Regular Business Customers (5-6 accounts only; NO retail customer accounts)
+  localStorage.setItem('PP_IS_SAMPLE_LOADED', 'false');
+  localStorage.setItem('PP_SAMPLE_DATA_LOADED', 'false');
+  return true;
+}
+
+// 3. Load Full Sample Testing Data (Demo / Practice dataset for verification)
+export async function loadSampleTestingData() {
+  // Wipe existing transactional data to ensure fresh clean demo state
+  await wipeAllData(true);
+
+  // Ensure system settings & users exist
+  await ensureSystemInitialized();
+
+  // 1. Regular Business Customers (5-6 accounts only; NO retail customer accounts)
   const mbGoodsId = await db.customers.add({
     name: 'M.B GOODS',
     company: 'M.B Goods Transport Company',
@@ -603,4 +680,18 @@ export async function seedInitialData(force = false) {
   }
 
   console.log(`Successfully seeded sales, meter readings, and M.B GOODS ledger details!`);
+  localStorage.setItem('PP_IS_SAMPLE_LOADED', 'true');
+  localStorage.setItem('PP_SAMPLE_DATA_LOADED', 'true');
+  return {
+    success: true,
+    message: 'Sample test dataset successfully populated with 6 customers, vehicles, fuel stock, 140+ sales and meter readings.'
+  };
+}
+
+// 4. Backward-compatible wrapper
+export async function seedInitialData(force = false) {
+  if (force) {
+    return await loadSampleTestingData();
+  }
+  return await ensureSystemInitialized();
 }

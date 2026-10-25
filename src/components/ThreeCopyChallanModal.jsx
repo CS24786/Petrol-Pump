@@ -28,7 +28,7 @@ export default function ThreeCopyChallanModal({ challan, pumpSettings, onClose }
   if (!challan) return null;
 
   const pumpName = pumpSettings?.pumpName || 'DIYAL FILLING STATION';
-  const pumpAddress = pumpSettings?.pumpAddress || 'Main Highway Bypass, Near Freight Hub';
+  const pumpAddress = pumpSettings?.pumpAddress || 'Chiniot Road, Chak Jhumra, FSD.';
   const pumpPhone = pumpSettings?.pumpPhone || '+92 300 7654321 / +92 321 9876543';
   const pumpNTN = pumpSettings?.pumpNTN || '4829103-7';
 
@@ -94,7 +94,7 @@ export default function ThreeCopyChallanModal({ challan, pumpSettings, onClose }
           </div>
 
           <div className="flex items-center justify-center gap-2 mt-1">
-            <img src="/logo.jpg" alt="Diyal Logo" className="h-6 w-auto object-contain mix-blend-multiply" onError={(e) => { e.target.src = '/logo.png'; }} />
+            <img src="./logo.png" alt="Diyal Logo" className="h-6 w-auto object-contain" onError={(e) => { e.target.src = './logo.jpg'; }} />
             <h3 className="text-base font-black font-sans text-slate-950">
               {pumpName}
             </h3>
@@ -262,7 +262,7 @@ export default function ThreeCopyChallanModal({ challan, pumpSettings, onClose }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto no-print">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col my-auto max-h-[92vh]">
         
         {/* Modal Header & Copy Selectors */}

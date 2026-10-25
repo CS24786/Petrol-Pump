@@ -35,83 +35,104 @@ import { formatCurrency, formatNumber, formatDateDisplay } from '../utils/format
 export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, onOpenPaymentModal }) {
   const [salesPeriod, setSalesPeriod] = useState('7days'); // '7days', 'month'
 
-  // Live queries
+  // Live queries directly connected to Dexie Database
   const sales = useLiveQuery(() => db.sales?.toArray() || [], []);
   const tanks = useLiveQuery(() => db.tanks?.toArray() || [], []);
   const customers = useLiveQuery(() => db.customers?.toArray() || [], []);
   const ledgerEntries = useLiveQuery(() => db.ledgerEntries?.toArray() || [], []);
   const expenses = useLiveQuery(() => db.expenses?.toArray() || [], []);
   const purchases = useLiveQuery(() => db.purchases?.toArray() || [], []);
+  const employeePayments = useLiveQuery(() => db.employeePayments?.toArray() || [], []);
 
-  // Compute 4 Top KPIs
+  // 1. Total Sales KPI (Live from db.sales)
   const totalSalesAmount = useMemo(() => {
-    if (!sales) return 1245680;
-    const sum = sales.reduce((acc, s) => acc + (Number(s.totalAmount) || 0), 0);
-    return sum > 0 ? sum : 1245680;
+    if (!sales || sales.length === 0) return 0;
+    return sales.reduce((acc, s) => acc + (Number(s.totalAmount) || 0), 0);
   }, [sales]);
 
+  // 2. Fuel Stock KPI (Live sum of underground tanks current stock in litres)
   const totalFuelStockLitres = useMemo(() => {
-    if (!tanks || tanks.length === 0) return 24350;
-    const sum = tanks.reduce((acc, t) => acc + (Number(t.currentStockLitres) || 0), 0);
-    return sum > 0 ? sum : 24350;
+    if (!tanks || tanks.length === 0) return 0;
+    return tanks.reduce((acc, t) => acc + (Number(t.currentStockLitres) || 0), 0);
   }, [tanks]);
 
+  // 3. Customer Dues KPI (Live receivables: opening balance + unpaid credit sales + ledger entries)
   const totalCustomerDues = useMemo(() => {
-    if (!customers || customers.length === 0) return 124300;
+    if (!customers || customers.length === 0) return 0;
     let total = 0;
     customers.forEach(c => {
       const custSales = (sales || []).filter(s => s.customerId === c.id);
       const custEntries = (ledgerEntries || []).filter(e => e.customerId === c.id);
-      const netSales = custSales.reduce((sum, s) => sum + (s.totalAmount - (s.paidAmount || 0)), 0);
-      const netLedger = custEntries.reduce((sum, e) => sum + (e.outAmount || 0) - (e.inAmount || 0), 0);
-      total += (c.openingBalance || 0) + netSales + netLedger;
+      const netSales = custSales.reduce((sum, s) => sum + ((Number(s.totalAmount) || 0) - (Number(s.paidAmount) || 0)), 0);
+      const netLedger = custEntries.reduce((sum, e) => sum + (Number(e.outAmount) || 0) - (Number(e.inAmount) || 0), 0);
+      total += (Number(c.openingBalance) || 0) + netSales + netLedger;
     });
-    return total > 0 ? total : 124300;
+    return Math.max(0, total);
   }, [customers, sales, ledgerEntries]);
 
+  // 4. Total Expenses KPI (Live sum of Roznamcha operating expenses + staff wage disbursements)
   const totalExpensesAmount = useMemo(() => {
-    if (!expenses || expenses.length === 0) return 76850;
-    const sum = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
-    return sum > 0 ? sum : 76850;
-  }, [expenses]);
+    const expSum = (expenses || []).reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+    const wageSum = (employeePayments || []).reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    return expSum + wageSum;
+  }, [expenses, employeePayments]);
 
-  // Daily Sales Trends for Chart (Last 11 active days or fallback)
+  // 5. Daily Sales Trends for Chart (Dynamically computed from real db.sales)
   const chartDays = useMemo(() => {
-    const defaultData = [
-      { date: 'Oct 20', fuel: 95000, total: 110000 },
-      { date: 'Oct 21', fuel: 88000, total: 145000 },
-      { date: 'Oct 22', fuel: 112000, total: 125000 },
-      { date: 'Oct 23', fuel: 90000, total: 105000 },
-      { date: 'Oct 24', fuel: 130000, total: 160000 },
-      { date: 'Oct 25', fuel: 85000, total: 95000 },
-      { date: 'Oct 26', fuel: 105000, total: 120000 },
-      { date: 'Oct 27', fuel: 98000, total: 115000 },
-      { date: 'Oct 28', fuel: 145000, total: 175000 },
-      { date: 'Oct 29', fuel: 120000, total: 135000 },
-      { date: 'Oct 30', fuel: 110000, total: 130000 },
-    ];
+    const numDays = salesPeriod === 'month' ? 30 : 7;
+    const now = new Date();
+    
+    // Extract unique dates from actual sales
+    const salesDates = [...new Set((sales || []).map(s => s.date).filter(Boolean))].sort();
 
-    if (!sales || sales.length < 5) return defaultData;
+    let targetDates = [];
+    if (salesDates.length > 0) {
+      targetDates = salesDates.slice(-numDays);
+      // Pad to at least 7 dates for consistent layout
+      if (targetDates.length < 7) {
+        const lastDate = new Date(targetDates[targetDates.length - 1]);
+        let offset = 1;
+        while (targetDates.length < 7) {
+          const prev = new Date(lastDate);
+          prev.setDate(prev.getDate() - offset);
+          const iso = prev.toISOString().split('T')[0];
+          if (!targetDates.includes(iso)) {
+            targetDates.unshift(iso);
+          }
+          offset++;
+        }
+      }
+    } else {
+      // Clean zero state: generate last 7 calendar days
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        targetDates.push(d.toISOString().split('T')[0]);
+      }
+    }
 
-    // Group actual sales by date
-    const map = {};
-    sales.forEach(s => {
-      if (!map[s.date]) map[s.date] = { fuel: 0, total: 0 };
-      map[s.date].fuel += (Number(s.dieselAmount) || Number(s.totalAmount) || 0);
-      map[s.date].total += (Number(s.totalAmount) || 0);
+    return targetDates.map(dateStr => {
+      const daySales = (sales || []).filter(s => s.date === dateStr);
+      const fuel = daySales.reduce((sum, s) => sum + (Number(s.dieselAmount) || 0), 0);
+      const total = daySales.reduce((sum, s) => sum + (Number(s.totalAmount) || 0), 0);
+      const parts = dateStr.split('-');
+      const label = parts.length === 3 ? `${parts[2]}/${parts[1]}` : dateStr;
+      return {
+        date: label,
+        fullDate: dateStr,
+        fuel,
+        total
+      };
     });
+  }, [sales, salesPeriod]);
 
-    const entries = Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).slice(-11);
-    if (entries.length < 5) return defaultData;
+  // Scale maximum dynamically based on highest daily sale
+  const chartMaxVal = useMemo(() => {
+    const max = Math.max(0, ...chartDays.map(d => d.total));
+    return max > 0 ? Math.ceil(max * 1.2) : 50000;
+  }, [chartDays]);
 
-    return entries.map(([d, val]) => ({
-      date: formatDateDisplay(d).split('-').slice(0, 2).join(' '),
-      fuel: val.fuel,
-      total: val.total
-    }));
-  }, [sales]);
-
-  // Product volume shares for Donut Chart
+  // 6. Product volume breakdown for Donut Chart (Live from db.sales)
   const productShares = useMemo(() => {
     let pmg = 0;
     let hsd = 0;
@@ -119,195 +140,226 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
 
     (sales || []).forEach(s => {
       const litres = Number(s.litres) || 0;
-      if (s.fuelType === 'Petrol' || s.fuelType === 'PMG') pmg += litres;
-      else if (s.fuelType === 'Diesel' || s.fuelType === 'HSD') hsd += litres;
-      else other += litres;
+      const t = (s.fuelType || '').toLowerCase();
+      if (t.includes('petrol') || t.includes('pmg')) {
+        pmg += litres;
+      } else if (t.includes('diesel') || t.includes('hsd')) {
+        hsd += litres;
+      } else if (litres > 0) {
+        other += litres;
+      }
     });
 
-    const total = pmg + hsd + other;
-    if (total === 0) {
-      return [
-        { label: 'Petrol', pct: 62, color: '#3B82F6' },
-        { label: 'Super', pct: 26, color: '#06B6D4' },
-        { label: 'Diesel', pct: 7, color: '#F59E0B' },
-        { label: 'CNG', pct: 3, color: '#8B5CF6' },
-        { label: 'Others', pct: 2, color: '#64748B' },
-      ];
+    const totalLitres = pmg + hsd + other;
+    if (totalLitres === 0) return [];
+
+    const pmgPct = Math.round((pmg / totalLitres) * 100);
+    const hsdPct = Math.round((hsd / totalLitres) * 100);
+    const otherPct = Math.max(0, 100 - pmgPct - hsdPct);
+
+    const circumference = 238; // 2 * pi * 38
+    let currentOffset = 0;
+    const list = [];
+
+    if (pmg > 0) {
+      const dash = Math.round((pmgPct / 100) * circumference);
+      list.push({
+        label: 'Petrol (PMG)',
+        litres: pmg,
+        pct: pmgPct,
+        color: '#10B981',
+        strokeDasharray: `${dash} ${circumference}`,
+        strokeDashoffset: currentOffset
+      });
+      currentOffset -= dash;
     }
 
-    const pmgPct = Math.round((pmg / total) * 100);
-    const hsdPct = Math.round((hsd / total) * 100);
-    const otherPct = Math.max(1, 100 - pmgPct - hsdPct);
+    if (hsd > 0) {
+      const dash = Math.round((hsdPct / 100) * circumference);
+      list.push({
+        label: 'Diesel (HSD)',
+        litres: hsd,
+        pct: hsdPct,
+        color: '#F59E0B',
+        strokeDasharray: `${dash} ${circumference}`,
+        strokeDashoffset: currentOffset
+      });
+      currentOffset -= dash;
+    }
 
-    return [
-      { label: 'Petrol', pct: pmgPct, color: '#3B82F6' },
-      { label: 'Super', pct: Math.round(pmgPct * 0.35), color: '#06B6D4' },
-      { label: 'Diesel', pct: hsdPct, color: '#F59E0B' },
-      { label: 'CNG', pct: Math.round(otherPct * 0.6), color: '#8B5CF6' },
-      { label: 'Others', pct: Math.max(2, otherPct), color: '#64748B' },
-    ];
+    if (otherPct > 0) {
+      const dash = Math.round((otherPct / 100) * circumference);
+      list.push({
+        label: 'Others / Mobil Oil',
+        litres: other,
+        pct: otherPct,
+        color: '#3B82F6',
+        strokeDasharray: `${dash} ${circumference}`,
+        strokeDashoffset: currentOffset
+      });
+    }
+
+    return list;
   }, [sales]);
 
-  // Tank Stock Statuses
+  // 7. Tank Stock Statuses (Live from db.tanks)
   const tankList = useMemo(() => {
-    if (tanks && tanks.length > 0) {
-      return tanks.map(t => {
-        const stock = Number(t.currentStockLitres) || 0;
-        const cap = Number(t.capacityLitres) || 25000;
-        const pct = Math.min(100, Math.round((stock / cap) * 100));
-        let color = '#3B82F6';
-        if (t.fuelType === 'Diesel' || t.fuelType === 'HSD') color = '#F59E0B';
-        else if (t.fuelType?.includes('Super') || t.fuelType?.includes('Octane')) color = '#F97316';
-        else if (t.fuelType?.includes('CNG') || t.fuelType?.includes('Oil')) color = '#8B5CF6';
+    if (!tanks || tanks.length === 0) return [];
+    return tanks.map(t => {
+      const stock = Number(t.currentStockLitres) || 0;
+      const cap = Number(t.capacityLitres) || 25000;
+      const pct = cap > 0 ? Math.min(100, Math.round((stock / cap) * 100)) : 0;
+      let color = '#10B981';
+      if (t.fuelType === 'Diesel' || t.fuelType === 'HSD') color = '#F59E0B';
 
-        return {
-          id: t.id,
-          name: t.tankName || t.fuelType,
-          litres: stock,
-          pct,
-          color
-        };
-      });
-    }
-
-    // Default template tanks
-    return [
-      { id: 1, name: 'Petrol', litres: 12480, pct: 62, color: '#3B82F6' },
-      { id: 2, name: 'Diesel', litres: 9760, pct: 48, color: '#F59E0B' },
-      { id: 3, name: 'Hi-Octane', litres: 4200, pct: 31, color: '#F97316' },
-      { id: 4, name: 'CNG', litres: 1100, pct: 22, color: '#8B5CF6' },
-    ];
+      return {
+        id: t.id,
+        name: t.tankName || t.fuelType,
+        fuelType: t.fuelType,
+        litres: stock,
+        capacity: cap,
+        pct,
+        color
+      };
+    });
   }, [tanks]);
 
-  // Recent Transactions combining sales, purchases & expenses
+  // 8. Recent Transactions Audit Trail (Live from db.sales, db.purchases, db.expenses, db.employeePayments)
   const recentTransactions = useMemo(() => {
     const list = [];
-    (sales || []).slice(-4).forEach(s => {
+
+    (sales || []).forEach(s => {
       list.push({
         id: `s-${s.id}`,
-        dateTime: `${formatDateDisplay(s.date)}, 15:42`,
-        type: 'Fuel Sale',
-        typeBadge: 'bg-blue-50 text-blue-700 border border-blue-200',
-        customer: s.isRetail ? 'Walk-in Customer' : (s.customerName || 'M.B GOODS'),
-        fuelType: s.fuelType || 'Petrol',
-        amount: s.totalAmount || 8500,
-        status: 'Completed',
+        timestamp: s.createdAt || `${s.date}T12:00:00`,
+        dateTime: formatDateDisplay(s.date),
+        type: s.isRetail ? 'Retail Sale' : 'Fleet Challan',
+        typeBadge: s.isRetail ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-blue-50 text-blue-700 border border-blue-200',
+        customer: s.isRetail ? 'Walk-in Retail' : (s.customerName || 'Fleet Account'),
+        fuelType: s.fuelType || 'Fuel',
+        amount: Number(s.totalAmount) || 0,
+        status: s.paymentStatus || (s.paymentType === 'Cash' ? 'Paid' : 'Credit'),
+        statusBadge: s.paymentType === 'Credit' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+      });
+    });
+
+    (purchases || []).forEach(p => {
+      list.push({
+        id: `p-${p.id}`,
+        timestamp: p.createdAt || `${p.date}T10:00:00`,
+        dateTime: formatDateDisplay(p.date),
+        type: 'Tanker Delivery',
+        typeBadge: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+        customer: p.supplierName || 'Fuel Supplier',
+        fuelType: p.fuelType || 'Fuel Supply',
+        amount: Number(p.totalAmount) || 0,
+        status: p.status || 'Received',
         statusBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200'
       });
     });
 
-    if (purchases && purchases.length > 0) {
-      const p = purchases[purchases.length - 1];
-      list.push({
-        id: `p-${p.id}`,
-        dateTime: `${formatDateDisplay(p.date)}, 14:20`,
-        type: 'Purchase',
-        typeBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-        customer: p.supplierName || 'PSO Distributor',
-        fuelType: p.fuelType || 'Diesel',
-        amount: p.totalAmount || 96400,
-        status: 'Completed',
-        statusBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-      });
-    }
-
-    if (expenses && expenses.length > 0) {
-      const e = expenses[expenses.length - 1];
+    (expenses || []).forEach(e => {
       list.push({
         id: `e-${e.id}`,
-        dateTime: `${formatDateDisplay(e.date)}, 10:32`,
+        timestamp: e.createdAt || `${e.date}T09:00:00`,
+        dateTime: formatDateDisplay(e.date),
         type: 'Expense',
         typeBadge: 'bg-orange-50 text-orange-700 border border-orange-200',
-        customer: e.category || 'Utilities',
+        customer: e.paidTo || e.category || 'Station Expense',
         fuelType: '-',
-        amount: e.amount || 4500,
+        amount: Number(e.amount) || 0,
         status: 'Paid',
-        statusBadge: 'bg-blue-50 text-blue-700 border border-blue-200'
+        statusBadge: 'bg-slate-100 text-slate-700 border border-slate-200'
       });
-    }
+    });
 
-    // Default template items if list is short
-    if (list.length < 5) {
-      return [
-        { id: '1', dateTime: '26 Oct 2026, 15:42', type: 'Fuel Sale', typeBadge: 'bg-blue-50 text-blue-700 border border-blue-200', customer: 'Walk-in Customer', fuelType: 'Petrol', amount: 8500, status: 'Completed', statusBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-        { id: '2', dateTime: '26 Oct 2026, 14:20', type: 'Purchase', typeBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200', customer: 'PSO Distributor', fuelType: 'Diesel', amount: 96400, status: 'Completed', statusBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-        { id: '3', dateTime: '26 Oct 2026, 11:15', type: 'Fuel Sale', typeBadge: 'bg-blue-50 text-blue-700 border border-blue-200', customer: 'ABC Transport', fuelType: 'Petrol', amount: 8760, status: 'Completed', statusBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200' },
-        { id: '4', dateTime: '26 Oct 2026, 10:32', type: 'Expense', typeBadge: 'bg-orange-50 text-orange-700 border border-orange-200', customer: 'Utilities', fuelType: '-', amount: 4500, status: 'Paid', statusBadge: 'bg-blue-50 text-blue-700 border border-blue-200' },
-        { id: '5', dateTime: '26 Oct 2026, 17:08', type: 'Fuel Sale', typeBadge: 'bg-blue-50 text-blue-700 border border-blue-200', customer: 'Walk-in Customer', fuelType: 'Diesel', amount: 15320, status: 'Completed', statusBadge: 'bg-emerald-50 text-emerald-700 border border-emerald-200' }
-      ];
-    }
+    (employeePayments || []).forEach(ep => {
+      list.push({
+        id: `ep-${ep.id}`,
+        timestamp: ep.createdAt || `${ep.date}T11:00:00`,
+        dateTime: formatDateDisplay(ep.date),
+        type: ep.type === 'Advance' ? 'Staff Advance' : 'Staff Salary',
+        typeBadge: 'bg-purple-50 text-purple-700 border border-purple-200',
+        customer: ep.employeeName || 'Staff Member',
+        fuelType: '-',
+        amount: Number(ep.amount) || 0,
+        status: 'Disbursed',
+        statusBadge: 'bg-purple-50 text-purple-700 border border-purple-200'
+      });
+    });
 
-    return list.slice(0, 5);
-  }, [sales, purchases, expenses]);
+    return list.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 5);
+  }, [sales, purchases, expenses, employeePayments]);
 
-  // Recent Customers List
+  // 9. Recent Customers List (Live from db.customers)
   const recentCustomersList = useMemo(() => {
-    if (customers && customers.length > 0) {
-      const colors = ['bg-purple-100 text-purple-700', 'bg-cyan-100 text-cyan-700', 'bg-blue-100 text-blue-700', 'bg-amber-100 text-amber-700', 'bg-emerald-100 text-emerald-700'];
-      return customers.slice(0, 5).map((c, i) => ({
+    if (!customers || customers.length === 0) return [];
+    const colors = [
+      'bg-blue-100 text-blue-700', 
+      'bg-emerald-100 text-emerald-700', 
+      'bg-purple-100 text-purple-700', 
+      'bg-amber-100 text-amber-700', 
+      'bg-rose-100 text-rose-700'
+    ];
+    return customers.slice(0, 5).map((c, i) => {
+      const custSales = (sales || []).filter(s => s.customerId === c.id);
+      const custEntries = (ledgerEntries || []).filter(e => e.customerId === c.id);
+      const netSales = custSales.reduce((sum, s) => sum + ((Number(s.totalAmount) || 0) - (Number(s.paidAmount) || 0)), 0);
+      const netLedger = custEntries.reduce((sum, e) => sum + (Number(e.outAmount) || 0) - (Number(e.inAmount) || 0), 0);
+      const currentBalance = (Number(c.openingBalance) || 0) + netSales + netLedger;
+
+      return {
         id: c.id,
         name: c.name,
-        company: c.company,
+        company: c.company || c.name,
         avatarColor: colors[i % colors.length],
         letter: (c.name || 'C')[0].toUpperCase(),
-        amount: c.openingBalance || 25600,
-        time: `${(i + 1) * 2} hours ago`
-      }));
-    }
-
-    // Default template customers
-    return [
-      { id: 1, name: 'ABC Transport', avatarColor: 'bg-purple-100 text-purple-700', letter: 'A', amount: 25600, time: '2 hours ago' },
-      { id: 2, name: 'City Mart', avatarColor: 'bg-cyan-100 text-cyan-700', letter: 'C', amount: 12480, time: '4 hours ago' },
-      { id: 3, name: 'Zain Traders', avatarColor: 'bg-blue-100 text-blue-700', letter: 'Z', amount: 8760, time: '6 hours ago' },
-      { id: 4, name: 'Royal Marble House', avatarColor: 'bg-amber-100 text-amber-700', letter: 'R', amount: 18200, time: '8 hours ago' },
-      { id: 5, name: 'Al-Hadi Restaurant', avatarColor: 'bg-sky-100 text-sky-700', letter: 'A', amount: 5430, time: '10 hours ago' },
-    ];
-  }, [customers]);
+        amount: currentBalance,
+        phone: c.phone || 'Fleet Account'
+      };
+    });
+  }, [customers, sales, ledgerEntries]);
 
   return (
     <div className="space-y-5 pb-10 select-none">
       
       {/* 1. TOP PANORAMIC STATION BANNER */}
       <div 
-        className="w-full h-44 rounded-2xl relative overflow-hidden bg-cover bg-center shadow-sm flex items-center px-8"
-        style={{ backgroundImage: "url('/dashboard_background.jpg')" }}
+        className="w-full h-44 rounded-2xl relative overflow-hidden bg-cover bg-center shadow-xs flex items-center px-6 sm:px-8 border border-slate-200/80"
+        style={{ backgroundImage: "url('./dashboard_background.jpg')" }}
       >
-        {/* Dark Gradient Overlay on left */}
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0F1B2F]/95 via-[#0F1B2F]/75 to-transparent pointer-events-none"></div>
+        {/* Dark Gradient Overlay for optimal contrast */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0F1B2F]/95 via-[#0F1B2F]/80 to-transparent pointer-events-none"></div>
 
-        {/* Banner Content with Official Logo */}
+        {/* Banner Content with Clean Diyal Logo matching Login screen */}
         <div className="relative z-10 text-white max-w-xl flex items-center gap-4">
-          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white p-1.5 shadow-lg flex items-center justify-center shrink-0 border border-white/20">
+          <div className="h-14 sm:h-16 w-auto flex items-center justify-center shrink-0">
             <img
-              src="/logo.jpg"
+              src="./logo.png"
               alt="Diyal Logo"
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                e.target.src = '/logo.png';
-              }}
+              className="h-12 sm:h-14 w-auto object-contain drop-shadow-md"
             />
           </div>
           <div>
             <span className="text-white/80 text-xs sm:text-sm font-medium tracking-wide block">
-              Welcome Back,
+              Live Station Overview &bull; Real-time Operations
             </span>
             <h1 className="text-2xl sm:text-3xl font-black tracking-wide text-white mt-0.5">
               DIYAL Filling Station
             </h1>
             <p className="text-white/75 text-xs mt-1">
-              Manage your station operations efficiently &bull; Offline Desktop ERP
+              Petroleum ERP &bull; 24/7 Dispensers, Underground Tanks &amp; Fleet Ledgers
             </p>
           </div>
         </div>
       </div>
 
-      {/* 2. FOUR TOP KPI METRIC CARDS */}
+      {/* 2. FOUR TOP KPI METRIC CARDS (ALL 100% LIVE FROM DEXIE DB) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
         {/* Card 1: Total Sales */}
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-full bg-blue-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+          <div className="w-11 h-11 rounded-full bg-blue-500 text-white flex items-center justify-center shrink-0 shadow-xs">
             <Fuel className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
@@ -318,17 +370,17 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
               {formatCurrency(totalSalesAmount)}
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] truncate">
-              <span className="text-emerald-600 font-bold flex items-center">
-                &uarr; 12%
+              <span className="text-blue-600 font-bold font-mono">
+                {(sales || []).length} Records
               </span>
-              <span className="text-slate-400">vs. last month</span>
+              <span className="text-slate-400">&bull; Live transactions</span>
             </div>
           </div>
         </div>
 
         {/* Card 2: Fuel Stock */}
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+          <div className="w-11 h-11 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs">
             <Droplet className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
@@ -339,17 +391,17 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
               {formatNumber(totalFuelStockLitres, 0)} L
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] truncate">
-              <span className="text-emerald-600 font-bold flex items-center">
-                &uarr; 8%
+              <span className="text-emerald-600 font-bold font-mono">
+                {(tanks || []).length} Tanks
               </span>
-              <span className="text-slate-400">vs. last month</span>
+              <span className="text-slate-400">&bull; Underground stock</span>
             </div>
           </div>
         </div>
 
         {/* Card 3: Customer Dues */}
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+          <div className="w-11 h-11 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
             <Users className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
@@ -360,17 +412,17 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
               {formatCurrency(totalCustomerDues)}
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] truncate">
-              <span className="text-rose-500 font-bold flex items-center">
-                &darr; 5%
+              <span className="text-amber-700 font-bold font-mono">
+                {(customers || []).length} Accounts
               </span>
-              <span className="text-slate-400">vs. last month</span>
+              <span className="text-slate-400">&bull; Net receivables</span>
             </div>
           </div>
         </div>
 
         {/* Card 4: Total Expenses */}
         <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-full bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+          <div className="w-11 h-11 rounded-full bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs">
             <Wallet className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
@@ -381,17 +433,17 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
               {formatCurrency(totalExpensesAmount)}
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-[11px] truncate">
-              <span className="text-emerald-600 font-bold flex items-center">
-                &darr; 3%
+              <span className="text-purple-600 font-bold font-mono">
+                {(expenses || []).length + (employeePayments || []).length} Vouchers
               </span>
-              <span className="text-slate-400">vs. last month</span>
+              <span className="text-slate-400">&bull; Roznamcha &amp; Wages</span>
             </div>
           </div>
         </div>
 
       </div>
 
-      {/* 3. ROW 2: Sales Overview Bar/Line Chart, Donut Chart, and Quick Actions */}
+      {/* 3. ROW 2: Sales Overview Bar/Trend Chart, Donut Chart, and Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         
         {/* Sales Overview Chart (Cols 1 to 6) */}
@@ -407,7 +459,7 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
               className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-600 font-medium cursor-pointer focus:outline-none"
             >
               <option value="7days">Last 7 Days</option>
-              <option value="month">This Month</option>
+              <option value="month">Last 30 Days</option>
             </select>
           </div>
 
@@ -415,37 +467,40 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
           <div className="relative h-48 w-full pt-2">
             {/* Horizontal Grid lines */}
             <div className="absolute inset-0 flex flex-col justify-between pointer-events-none text-[10px] text-slate-400 font-mono">
-              <div className="border-b border-slate-100 pb-0.5">200K</div>
-              <div className="border-b border-slate-100 pb-0.5">150K</div>
-              <div className="border-b border-slate-100 pb-0.5">100K</div>
-              <div className="border-b border-slate-100 pb-0.5">50K</div>
+              <div className="border-b border-slate-100 pb-0.5">{Math.round(chartMaxVal / 1000)}K</div>
+              <div className="border-b border-slate-100 pb-0.5">{Math.round((chartMaxVal * 0.75) / 1000)}K</div>
+              <div className="border-b border-slate-100 pb-0.5">{Math.round((chartMaxVal * 0.5) / 1000)}K</div>
+              <div className="border-b border-slate-100 pb-0.5">{Math.round((chartMaxVal * 0.25) / 1000)}K</div>
               <div className="border-b border-slate-200 pb-0.5">0</div>
             </div>
 
             {/* Vertical Bars and Trend Points */}
-            <div className="relative h-full flex items-end justify-between px-8 pl-12 pb-5 z-10">
+            <div className="relative h-full flex items-end justify-between px-6 pl-10 pb-5 z-10">
               {chartDays.map((item, idx) => {
-                const maxVal = 200000;
-                const barHeightPct = Math.min(100, Math.max(10, Math.round((item.fuel / maxVal) * 100)));
-                const linePointPct = Math.min(100, Math.max(15, Math.round((item.total / maxVal) * 100)));
+                const barHeightPct = chartMaxVal > 0 ? Math.min(100, Math.round((item.fuel / chartMaxVal) * 100)) : 0;
+                const linePointPct = chartMaxVal > 0 ? Math.min(100, Math.round((item.total / chartMaxVal) * 100)) : 0;
 
                 return (
                   <div key={idx} className="flex flex-col items-center group relative h-full justify-end w-6">
                     {/* Tooltip on hover */}
-                    <div className="absolute -top-7 hidden group-hover:flex bg-slate-900 text-white text-[10px] py-0.5 px-1.5 rounded shadow pointer-events-none z-20 whitespace-nowrap">
-                      Rs {item.total.toLocaleString()}
+                    <div className="absolute -top-7 hidden group-hover:flex bg-slate-900 text-white text-[10px] py-0.5 px-2 rounded-md shadow pointer-events-none z-20 whitespace-nowrap font-mono">
+                      {item.fullDate}: {formatCurrency(item.total)}
                     </div>
 
-                    {/* Trend Line Dot */}
-                    <div 
-                      className="absolute w-2 h-2 rounded-full bg-[#C32026] ring-2 ring-white z-15 transition-all"
-                      style={{ bottom: `${linePointPct}%`, transform: 'translateY(50%)' }}
-                    ></div>
+                    {/* Trend Line Dot (Only rendered if amount > 0) */}
+                    {item.total > 0 && (
+                      <div 
+                        className="absolute w-2 h-2 rounded-full bg-[#C32026] ring-2 ring-white z-15 transition-all"
+                        style={{ bottom: `${linePointPct}%`, transform: 'translateY(50%)' }}
+                      ></div>
+                    )}
 
                     {/* Bar */}
                     <div 
-                      className="w-3 sm:w-3.5 bg-blue-500 hover:bg-blue-600 rounded-t-sm transition-all duration-300"
-                      style={{ height: `${barHeightPct}%` }}
+                      className={`w-3 sm:w-3.5 rounded-t-sm transition-all duration-300 ${
+                        item.fuel > 0 ? 'bg-blue-500 hover:bg-blue-600' : 'bg-slate-100 h-0.5'
+                      }`}
+                      style={{ height: `${Math.max(2, barHeightPct)}%` }}
                     ></div>
 
                     {/* Date label */}
@@ -462,11 +517,11 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
           <div className="flex items-center justify-center gap-6 mt-6 pt-3 border-t border-slate-100 text-xs text-slate-600 font-medium">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-              <span>Fuel Sales</span>
+              <span>Fuel Sales (PKR)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#C32026]"></span>
-              <span>Total Sales</span>
+              <span>Total Invoiced</span>
             </div>
           </div>
         </div>
@@ -482,36 +537,53 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
             {/* SVG Donut */}
             <div className="relative w-36 h-36 flex items-center justify-center">
               <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
-                <circle cx="50" cy="50" r="38" stroke="#E2E8F0" strokeWidth="12" fill="none" />
-                {/* Petrol (Blue) ~62% */}
-                <circle cx="50" cy="50" r="38" stroke="#3B82F6" strokeWidth="12" strokeDasharray="148 238" strokeDashoffset="0" fill="none" />
-                {/* Super (Cyan) ~26% */}
-                <circle cx="50" cy="50" r="38" stroke="#06B6D4" strokeWidth="12" strokeDasharray="62 238" strokeDashoffset="-148" fill="none" />
-                {/* Diesel (Amber) ~7% */}
-                <circle cx="50" cy="50" r="38" stroke="#F59E0B" strokeWidth="12" strokeDasharray="17 238" strokeDashoffset="-210" fill="none" />
-                {/* CNG (Purple) ~5% */}
-                <circle cx="50" cy="50" r="38" stroke="#8B5CF6" strokeWidth="12" strokeDasharray="11 238" strokeDashoffset="-227" fill="none" />
+                {/* Background Ring */}
+                <circle cx="50" cy="50" r="38" stroke="#F1F5F9" strokeWidth="12" fill="none" />
+                {/* Segments for each fuel product */}
+                {productShares.map(p => (
+                  <circle
+                    key={p.label}
+                    cx="50"
+                    cy="50"
+                    r="38"
+                    stroke={p.color}
+                    strokeWidth="12"
+                    strokeDasharray={p.strokeDasharray}
+                    strokeDashoffset={p.strokeDashoffset}
+                    fill="none"
+                    className="transition-all duration-500"
+                  />
+                ))}
               </svg>
               {/* Center Total Text */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] text-slate-400 uppercase font-medium">Total Sales</span>
-                <span className="text-xs font-black text-slate-800 font-mono mt-0.5">
-                  Rs 1.25M
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-2">
+                <span className="text-[10px] text-slate-400 uppercase font-medium">Total Billed</span>
+                <span className="text-xs font-black text-slate-800 font-mono mt-0.5 truncate max-w-[85px]">
+                  {formatCurrency(totalSalesAmount)}
                 </span>
               </div>
             </div>
 
             {/* Donut Legend */}
             <div className="w-full space-y-1.5 mt-4 text-xs">
-              {productShares.map(p => (
-                <div key={p.label} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></span>
-                    <span className="text-slate-600 font-medium text-[11px]">{p.label}</span>
-                  </div>
-                  <span className="font-bold font-mono text-slate-800 text-[11px]">{p.pct}%</span>
+              {productShares.length === 0 ? (
+                <div className="text-center py-2 text-slate-400 text-xs italic font-sans">
+                  No fuel dispensed yet
                 </div>
-              ))}
+              ) : (
+                productShares.map(p => (
+                  <div key={p.label} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }}></span>
+                      <span className="text-slate-600 font-medium text-[11px]">{p.label}</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono text-[11px]">
+                      <span className="text-slate-400">{formatNumber(p.litres, 0)} L</span>
+                      <span className="font-bold text-slate-800">{p.pct}%</span>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -616,35 +688,43 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
             <table className="w-full text-xs text-left">
               <thead className="text-[11px] text-slate-400 border-b border-slate-100 font-semibold">
                 <tr>
-                  <th className="py-2">Date &amp; Time</th>
+                  <th className="py-2">Date</th>
                   <th className="py-2">Type</th>
-                  <th className="py-2">Customer</th>
-                  <th className="py-2">Fuel Type</th>
+                  <th className="py-2">Entity / Account</th>
+                  <th className="py-2">Product</th>
                   <th className="py-2 text-right">Amount</th>
                   <th className="py-2 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-[11px]">
-                {recentTransactions.map(tx => (
-                  <tr key={tx.id} className="hover:bg-slate-50/60">
-                    <td className="py-2.5 font-mono text-slate-500 whitespace-nowrap">{tx.dateTime}</td>
-                    <td className="py-2.5">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${tx.typeBadge}`}>
-                        {tx.type}
-                      </span>
-                    </td>
-                    <td className="py-2.5 font-medium text-slate-800">{tx.customer}</td>
-                    <td className="py-2.5 text-slate-600">{tx.fuelType}</td>
-                    <td className="py-2.5 text-right font-mono font-bold text-slate-900">
-                      PKR {tx.amount.toLocaleString()}
-                    </td>
-                    <td className="py-2.5 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${tx.statusBadge}`}>
-                        {tx.status}
-                      </span>
+                {recentTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-400 font-sans italic text-xs">
+                      No transactions recorded yet. Use "New Sale", "Add Expense", or "Record Reading" to add real transactions.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  recentTransactions.map(tx => (
+                    <tr key={tx.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-2.5 font-mono text-slate-500 whitespace-nowrap">{tx.dateTime}</td>
+                      <td className="py-2.5 whitespace-nowrap">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${tx.typeBadge}`}>
+                          {tx.type}
+                        </span>
+                      </td>
+                      <td className="py-2.5 font-medium text-slate-800 whitespace-nowrap">{tx.customer}</td>
+                      <td className="py-2.5 text-slate-600 whitespace-nowrap">{tx.fuelType}</td>
+                      <td className="py-2.5 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                        {formatCurrency(tx.amount)}
+                      </td>
+                      <td className="py-2.5 text-center whitespace-nowrap">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${tx.statusBadge}`}>
+                          {tx.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -667,26 +747,32 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
           </div>
 
           <div className="space-y-4 my-auto">
-            {tankList.map(tank => (
-              <div key={tank.id} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <Droplet className="w-3.5 h-3.5" style={{ color: tank.color }} />
-                    <span className="font-semibold text-slate-800">{tank.name}</span>
-                  </div>
-                  <span className="font-bold text-slate-600 font-mono text-[11px]">{tank.pct}%</span>
-                </div>
-                <div className="text-[10px] text-slate-400 font-mono pl-5">
-                  {formatNumber(tank.litres, 0)} L
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className="h-1.5 rounded-full transition-all duration-300"
-                    style={{ width: `${tank.pct}%`, backgroundColor: tank.color }}
-                  ></div>
-                </div>
+            {tankList.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-xs italic font-sans">
+                No storage tanks configured. Visit Stock Management to register underground tanks.
               </div>
-            ))}
+            ) : (
+              tankList.map(tank => (
+                <div key={tank.id} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <Droplet className="w-3.5 h-3.5" style={{ color: tank.color }} />
+                      <span className="font-semibold text-slate-800">{tank.name}</span>
+                    </div>
+                    <span className="font-bold text-slate-600 font-mono text-[11px]">{tank.pct}%</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono pl-5">
+                    {formatNumber(tank.litres, 0)} / {formatNumber(tank.capacity, 0)} L
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="h-1.5 rounded-full transition-all duration-300"
+                      style={{ width: `${tank.pct}%`, backgroundColor: tank.color }}
+                    ></div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -695,7 +781,7 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-600" />
-              <h3 className="text-sm font-bold text-slate-900">Recent Customers</h3>
+              <h3 className="text-sm font-bold text-slate-900">Customer Accounts</h3>
             </div>
             <button
               onClick={() => onNavigate('customer-ledgers')}
@@ -707,26 +793,32 @@ export default function Dashboard({ onNavigate, onOpenQuickSale, onOpenReceipt, 
           </div>
 
           <div className="space-y-3 my-auto">
-            {recentCustomersList.map(c => (
-              <div key={c.id} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${c.avatarColor}`}>
-                    {c.letter}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-800 leading-tight">
-                      {c.name}
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                      {formatCurrency(c.amount)}
-                    </div>
-                  </div>
-                </div>
-                <span className="text-[10px] text-slate-400 whitespace-nowrap font-sans">
-                  {c.time}
-                </span>
+            {recentCustomersList.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-xs italic font-sans">
+                No customer accounts registered yet. Use "Add Customer" to create credit accounts.
               </div>
-            ))}
+            ) : (
+              recentCustomersList.map(c => (
+                <div key={c.id} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${c.avatarColor}`}>
+                      {c.letter}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-800 leading-tight">
+                        {c.name}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {formatCurrency(c.amount)}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-slate-400 whitespace-nowrap font-mono">
+                    {c.phone}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

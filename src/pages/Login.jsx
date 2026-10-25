@@ -55,7 +55,7 @@ export default function Login({ onLoginSuccess }) {
     <div 
       className="min-h-screen w-full relative flex flex-col justify-between bg-slate-900 bg-cover bg-center select-none overflow-hidden"
       style={{
-        backgroundImage: "url('/login_background.jpg')"
+        backgroundImage: "url('./login_background.jpg')"
       }}
     >
       {/* Top Header Bar */}
@@ -63,10 +63,10 @@ export default function Login({ onLoginSuccess }) {
         {/* Top-Left: DIYAL Filling Station Logo & Brand Text */}
         <div className="flex items-center gap-2.5 sm:gap-3">
           <img
-            src="/logo.png"
+            src="./logo.png"
             alt="Diyal Filling Station"
             className="h-9 sm:h-10 w-auto object-contain drop-shadow-sm"
-            onError={(e) => { e.target.src = '/logo.jpg'; }}
+            onError={(e) => { e.target.src = './logo.jpg'; }}
           />
           <div className="flex flex-col leading-none">
             <span className="text-xl sm:text-2xl font-black tracking-wider text-[#0e2137] drop-shadow-xs">
@@ -93,10 +93,10 @@ export default function Login({ onLoginSuccess }) {
             {/* Centered Logo Lockup: Flame Icon + Brand Text */}
             <div className="flex items-center justify-center gap-2.5 sm:gap-3">
               <img
-                src="/logo.png"
+                src="./logo.png"
                 alt="Diyal Logo"
                 className="h-10 sm:h-11 w-auto object-contain shrink-0"
-                onError={(e) => { e.target.src = '/logo.jpg'; }}
+                onError={(e) => { e.target.src = './logo.jpg'; }}
               />
               <div className="flex flex-col text-left leading-none">
                 <span className="text-xl sm:text-2xl font-black tracking-wider text-[#0e2137]">

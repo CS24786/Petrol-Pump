@@ -8,7 +8,7 @@ export default function ReceiptModal({ sale, pumpSettings, onClose }) {
   if (!sale) return null;
 
   const pumpName = pumpSettings?.pumpName || 'DIYAL FILLING STATION';
-  const pumpAddress = pumpSettings?.pumpAddress || 'Main Highway Bypass, Near Freight Hub';
+  const pumpAddress = pumpSettings?.pumpAddress || 'Chiniot Road, Chak Jhumra, FSD.';
   const pumpPhone = pumpSettings?.pumpPhone || '+92 300 7654321';
   const pumpNTN = pumpSettings?.pumpNTN || '4829103-7';
 
@@ -19,7 +19,7 @@ export default function ReceiptModal({ sale, pumpSettings, onClose }) {
   const isRetail = sale.isRetail || !sale.customerId;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 overflow-y-auto no-print">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 overflow-y-auto">
       <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col my-auto">
         
         {/* Modal Header */}
@@ -42,7 +42,7 @@ export default function ReceiptModal({ sale, pumpSettings, onClose }) {
           {/* Header */}
           <div className="text-center pb-3 border-b border-dashed border-slate-300 space-y-1">
             <div className="flex items-center justify-center gap-2">
-              <img src="/logo.jpg" alt="Diyal Logo" className="h-6 w-auto object-contain mix-blend-multiply" onError={(e) => { e.target.src = '/logo.png'; }} />
+              <img src="./logo.png" alt="Diyal Logo" className="h-7 w-auto object-contain" onError={(e) => { e.target.src = './logo.jpg'; }} />
               <h2 className="text-base font-extrabold tracking-wide text-slate-950 font-sans">{pumpName}</h2>
             </div>
             <p className="text-[10px] text-slate-600">{pumpAddress}</p>

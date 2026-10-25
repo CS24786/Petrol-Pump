@@ -23,6 +23,8 @@ import {
   List
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDateDisplay, exportToCSV } from '../utils/formatters';
+import { exportReportToPDF } from '../utils/pdfExport';
+import Pagination from '../components/Pagination';
 
 export default function CompanySummaryChallans({ 
   onOpenPaymentModal, 
@@ -40,6 +42,12 @@ export default function CompanySummaryChallans({
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printReportMode, setPrintReportMode] = useState('daily'); // 'daily' | 'detailed'
 
+  // Pagination states
+  const [dailyPage, setDailyPage] = useState(1);
+  const [dailyPageSize, setDailyPageSize] = useState(10);
+  const [detailedPage, setDetailedPage] = useState(1);
+  const [detailedPageSize, setDetailedPageSize] = useState(10);
+
   // Queries
   const customers = useLiveQuery(() => db.customers.toArray(), []);
   const sales = useLiveQuery(() => db.sales.toArray(), []);
@@ -51,7 +59,7 @@ export default function CompanySummaryChallans({
   const settingsList = useLiveQuery(() => db.settings.toArray(), []);
 
   const pumpName = settingsList?.find(s => s.key === 'pumpName')?.value || 'DIYAL FILLING STATION';
-  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Jhumra City';
+  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Chak Jhumra, FSD.';
   const pumpPhone = settingsList?.find(s => s.key === 'pumpPhone')?.value || '+92 300 7654321 | +92 321 9876543';
 
   // Synchronize with parent propCustomerId
@@ -231,6 +239,17 @@ export default function CompanySummaryChallans({
       }
     };
   }, [activeCustomer, matchedChallans, ledgerEntries, startDate, endDate]);
+
+  // Paginated Slices
+  const paginatedDailyRows = useMemo(() => {
+    const start = (dailyPage - 1) * dailyPageSize;
+    return dailySummaryData.rows.slice(start, start + dailyPageSize);
+  }, [dailySummaryData.rows, dailyPage, dailyPageSize]);
+
+  const paginatedMatchedChallans = useMemo(() => {
+    const start = (detailedPage - 1) * detailedPageSize;
+    return matchedChallans.slice(start, start + detailedPageSize);
+  }, [matchedChallans, detailedPage, detailedPageSize]);
 
   // Export to Excel CSV
   const handleExportCSV = () => {
@@ -595,7 +614,7 @@ export default function CompanySummaryChallans({
                     </td>
                   </tr>
                 ) : (
-                  dailySummaryData.rows.map((row, idx) => {
+                  paginatedDailyRows.map((row, idx) => {
                     const isExpanded = expandedDates.has(row.date);
                     return (
                       <React.Fragment key={row.date}>
@@ -727,6 +746,13 @@ export default function CompanySummaryChallans({
                 </tfoot>
               )}
             </table>
+            <Pagination 
+              currentPage={dailyPage}
+              totalItems={dailySummaryData.rows.length}
+              pageSize={dailyPageSize}
+              onPageChange={setDailyPage}
+              onPageSizeChange={(sz) => { setDailyPageSize(sz); setDailyPage(1); }}
+            />
           </div>
         )}
 
@@ -762,7 +788,7 @@ export default function CompanySummaryChallans({
                     </td>
                   </tr>
                 ) : (
-                  matchedChallans.map((c, idx) => {
+                  paginatedMatchedChallans.map((c, idx) => {
                     const isPaid = (c.outstandingAmount <= 0) || (c.paidAmount >= c.totalAmount);
                     return (
                       <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
@@ -827,6 +853,13 @@ export default function CompanySummaryChallans({
                 </tfoot>
               )}
             </table>
+            <Pagination 
+              currentPage={detailedPage}
+              totalItems={matchedChallans.length}
+              pageSize={detailedPageSize}
+              onPageChange={setDetailedPage}
+              onPageSizeChange={(sz) => { setDetailedPageSize(sz); setDetailedPage(1); }}
+            />
           </div>
         )}
       </div>
@@ -834,19 +867,19 @@ export default function CompanySummaryChallans({
       {/* 3. PRINT REPORT MODAL FORM (MATCHING REFERENCE IMAGE 2 - WITH SAVE PDF, PRINT, EXPORT, HEADING) */}
       {isPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-5 overflow-y-auto">
-          <div className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in duration-150">
             
-            {/* Top Modal Navigation Header Bar (SCREEN ONLY / NO-PRINT) */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-400/40 text-blue-400 flex items-center justify-center shrink-0">
-                  <FileSpreadsheet className="w-5 h-5" />
+            {/* Top Modal Navigation Header Bar (SCREEN ONLY - Clean White Style) */}
+            <div className="px-6 py-4 bg-white text-slate-800 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0 shadow-xs">
+                  <FileSpreadsheet className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm sm:text-base tracking-tight text-white">
+                  <h3 className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900">
                     Consolidated Summary Challans Report
                   </h3>
-                  <span className="text-[11px] text-slate-300 font-normal">
+                  <span className="text-[11px] text-slate-500 font-normal">
                     {activeCustomer?.name} &bull; Daily Trucks &amp; Fuel Payment Statement
                   </span>
                 </div>
@@ -856,11 +889,14 @@ export default function CompanySummaryChallans({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handlePrintReport}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold cursor-pointer transition-all border border-white/20"
-                  title="Save this document directly to PDF"
+                  onClick={() => {
+                    const fname = `Diyal_Summary_Challan_${(activeCustomer?.name || 'Customer').replace(/\s+/g, '_')}_${startDate}_to_${endDate}.pdf`;
+                    exportReportToPDF('consolidated-challan-report', fname);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold cursor-pointer transition-all border border-blue-200 shadow-xs"
+                  title="Save this document directly to PDF file on your computer"
                 >
-                  <FileDown className="w-3.5 h-3.5 text-blue-300" />
+                  <FileDown className="w-3.5 h-3.5 text-blue-600" />
                   <span>Save PDF</span>
                 </button>
 
@@ -876,7 +912,7 @@ export default function CompanySummaryChallans({
                 <button
                   type="button"
                   onClick={handleExportCSV}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer transition-all shadow-xs"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Export Excel</span>
@@ -885,7 +921,7 @@ export default function CompanySummaryChallans({
                 <button
                   type="button"
                   onClick={() => setIsPrintModalOpen(false)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer ml-1"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer ml-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -898,19 +934,17 @@ export default function CompanySummaryChallans({
               {/* Header: Logo, Diyal Filling Station & Contact (NO image on top right as requested) */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b pb-4 border-slate-200">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-100 shadow-xs flex items-center justify-center shrink-0">
-                    <img 
-                      src="/logo.jpg" 
-                      alt="Diyal Logo" 
-                      className="w-full h-full object-contain"
-                      onError={e => { e.target.src = '/logo.png'; }}
-                    />
-                  </div>
-                  <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight leading-tight uppercase font-sans">
+                  <img 
+                    src="./logo.png" 
+                    alt="Diyal Logo" 
+                    className="h-12 sm:h-14 w-auto object-contain shrink-0 drop-shadow-xs"
+                    onError={e => { e.target.src = './logo.jpg'; }}
+                  />
+                  <div className="flex flex-col leading-none">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-950 tracking-wider uppercase font-sans">
                       DIYAL
                     </h2>
-                    <h3 className="text-xs font-black tracking-widest text-[#C32026] uppercase">
+                    <h3 className="text-xs font-bold tracking-widest text-[#C32026] uppercase mt-0.5">
                       FILLING STATION
                     </h3>
                   </div>

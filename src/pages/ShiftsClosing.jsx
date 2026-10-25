@@ -24,6 +24,9 @@ export default function ShiftsClosing() {
   const [isClosedSuccess, setIsClosedSuccess] = useState(false);
 
   // Queries
+  const settingsList = useLiveQuery(() => db.settings.toArray(), []);
+  const pumpAddress = settingsList?.find(s => s.key === 'pumpAddress')?.value || 'Chiniot Road, Chak Jhumra, FSD.';
+  const pumpPhone = settingsList?.find(s => s.key === 'pumpPhone')?.value || '0300-1234567';
   const sales = useLiveQuery(() => db.sales.toArray(), []);
   const expenses = useLiveQuery(() => db.expenses.toArray(), []);
   const nozzles = useLiveQuery(() => db.nozzles.toArray(), []);
@@ -133,7 +136,7 @@ export default function ShiftsClosing() {
       </div>
 
       {/* Live Active Shift Reconciliation Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl print-area">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl no-print">
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
@@ -303,7 +306,7 @@ export default function ShiftsClosing() {
       </div>
 
       {/* Previous Closed Shifts Log */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl no-print">
         <div className="p-4 border-b border-slate-800 bg-slate-950/40">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Clock className="w-4 h-4 text-brand-400" />
@@ -354,6 +357,135 @@ export default function ShiftsClosing() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* DEDICATED A4 PRINT SHEET (Only visible on Print) */}
+      <div id="shift-reconciliation-print" className="hidden print:block print-area p-8 bg-white text-slate-900 font-sans">
+        {/* Header matching Sidebar & Reports */}
+        <div className="flex items-start justify-between border-b-2 border-slate-900 pb-4 mb-5">
+          <div className="flex items-center gap-3">
+            <img
+              src="./logo.png"
+              alt="Diyal Logo"
+              className="h-10 w-auto object-contain shrink-0"
+              onError={(e) => { e.target.src = './logo.jpg'; }}
+            />
+            <div>
+              <h1 className="text-xl font-black tracking-wider text-slate-900 leading-none">
+                DIYAL <span className="text-[#C32026]">FILLING STATION</span>
+              </h1>
+              <p className="text-[11px] text-slate-600 mt-1">
+                {pumpAddress}
+              </p>
+              <p className="text-[10px] text-slate-500">
+                Phone / Helpline: {pumpPhone}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <span className="inline-block px-2.5 py-1 text-xs font-black bg-slate-900 text-white rounded">
+              SHIFT RECONCILIATION SHEET
+            </span>
+            <div className="text-[11px] text-slate-600 mt-1 font-mono">
+              Printed: {new Date().toLocaleString('en-GB')}
+            </div>
+          </div>
+        </div>
+
+        {/* Shift Details Meta */}
+        <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs mb-5 font-mono">
+          <div><span className="text-slate-500 font-sans">Shift Session:</span> <strong className="text-slate-900 font-bold">{shiftNumber}</strong></div>
+          <div><span className="text-slate-500 font-sans">Operator Incharge:</span> <strong className="text-slate-900 font-bold">{operatorName}</strong></div>
+          <div><span className="text-slate-500 font-sans">Date:</span> <strong className="text-slate-900 font-bold">{new Date().toLocaleDateString('en-GB')}</strong></div>
+        </div>
+
+        {/* Financial Summary Table */}
+        <table className="w-full text-xs border border-slate-300 mb-6">
+          <thead className="bg-slate-100 text-slate-800 font-bold uppercase text-[10px]">
+            <tr>
+              <th className="py-2 px-3 border-b border-r border-slate-300 text-left">Description / Particulars</th>
+              <th className="py-2 px-3 border-b border-r border-slate-300 text-center">Volume / Count</th>
+              <th className="py-2 px-3 border-b border-slate-300 text-right">Amount (PKR)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 font-mono">
+            <tr>
+              <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium">Diesel (HSD) Sales</td>
+              <td className="py-2 px-3 border-r border-slate-200 text-center">{formatNumber(shiftSummary.dieselLtr, 1)} Ltr</td>
+              <td className="py-2 px-3 text-right font-bold text-slate-900">{formatCurrency(shiftSummary.totalFuelSales)}</td>
+            </tr>
+            <tr>
+              <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium">Petrol (PMG) Sales</td>
+              <td className="py-2 px-3 border-r border-slate-200 text-center">{formatNumber(shiftSummary.petrolLtr, 1)} Ltr</td>
+              <td className="py-2 px-3 text-right font-bold text-slate-900">Included in Fuel Total</td>
+            </tr>
+            <tr className="bg-sky-50/50">
+              <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-sky-900">Less: Fleet Credit Sales (Customer Khata)</td>
+              <td className="py-2 px-3 border-r border-slate-200 text-center font-sans text-sky-800">Challans</td>
+              <td className="py-2 px-3 text-right font-bold text-sky-900">- {formatCurrency(shiftSummary.creditSales)}</td>
+            </tr>
+            <tr>
+              <td className="py-2 px-3 border-r border-slate-200 font-sans font-semibold text-slate-900">Net Shift Cash Sales</td>
+              <td className="py-2 px-3 border-r border-slate-200 text-center">Cash Counter</td>
+              <td className="py-2 px-3 text-right font-bold text-slate-900">{formatCurrency(shiftSummary.cashSales)}</td>
+            </tr>
+            <tr className="bg-amber-50/50">
+              <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-amber-900">Less: Driver Cash Advances Handed Out</td>
+              <td className="py-2 px-3 border-r border-slate-200 text-center font-sans text-amber-800">Driver Receipts</td>
+              <td className="py-2 px-3 text-right font-bold text-amber-900">- {formatCurrency(shiftSummary.cashAdvances)}</td>
+            </tr>
+            <tr className="bg-rose-50/50">
+              <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-rose-900">Less: Shift Petty Expenses Paid</td>
+              <td className="py-2 px-3 border-r border-slate-200 text-center font-sans text-rose-800">Vouchers</td>
+              <td className="py-2 px-3 text-right font-bold text-rose-900">- {formatCurrency(shiftSummary.shiftExpenses)}</td>
+            </tr>
+            <tr className="bg-slate-100 font-bold text-sm">
+              <td className="py-2.5 px-3 border-r border-slate-300 font-sans text-slate-900" colSpan={2}>
+                EXPECTED PHYSICAL CASH IN REGISTER
+              </td>
+              <td className="py-2.5 px-3 text-right text-emerald-700">
+                {formatCurrency(shiftSummary.expectedCash)}
+              </td>
+            </tr>
+            {actualCashCounted !== '' && (
+              <>
+                <tr>
+                  <td className="py-2 px-3 border-r border-slate-200 font-sans font-medium text-slate-900" colSpan={2}>
+                    Actual Cash Counted & Handed Over:
+                  </td>
+                  <td className="py-2 px-3 text-right font-bold text-slate-900">
+                    {formatCurrency(Number(actualCashCounted))}
+                  </td>
+                </tr>
+                <tr className={Number(actualCashCounted) - shiftSummary.expectedCash === 0 ? 'bg-slate-50' : 'bg-rose-50 text-rose-900'}>
+                  <td className="py-2 px-3 border-r border-slate-200 font-sans font-bold" colSpan={2}>
+                    Cash Discrepancy / Variance (Diff):
+                  </td>
+                  <td className="py-2 px-3 text-right font-bold">
+                    {Number(actualCashCounted) - shiftSummary.expectedCash >= 0 ? '+' : ''}
+                    {formatCurrency(Number(actualCashCounted) - shiftSummary.expectedCash)}
+                  </td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+
+        {/* Signatures Row */}
+        <div className="grid grid-cols-3 gap-6 pt-10 mt-12 border-t border-slate-300 text-xs text-center text-slate-600">
+          <div>
+            <div className="border-t border-dashed border-slate-400 pt-2 font-medium">Shift Operator</div>
+            <div className="text-[10px] text-slate-400 mt-0.5">{operatorName}</div>
+          </div>
+          <div>
+            <div className="border-t border-dashed border-slate-400 pt-2 font-medium">Cash Receiver / Cashier</div>
+            <div className="text-[10px] text-slate-400 mt-0.5">Signature & Stamp</div>
+          </div>
+          <div>
+            <div className="border-t border-dashed border-slate-400 pt-2 font-medium">Station Manager / Owner</div>
+            <div className="text-[10px] text-slate-400 mt-0.5">Authorized Approval</div>
+          </div>
         </div>
       </div>
 

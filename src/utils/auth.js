@@ -81,7 +81,6 @@ export function setSessionUser(user, remember = false) {
   sessionStorage.setItem(SESSION_KEY, json);
   if (remember) {
     localStorage.setItem(REMEMBER_USER_KEY, user.username);
-    localStorage.setItem(SESSION_KEY, json);
   } else {
     localStorage.removeItem(REMEMBER_USER_KEY);
   }
@@ -89,7 +88,9 @@ export function setSessionUser(user, remember = false) {
 
 export function getSessionUser() {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);
+    // Clean up any old localStorage session so new browser/app starts always require login
+    localStorage.removeItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;

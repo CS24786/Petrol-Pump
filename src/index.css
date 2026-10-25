@@ -64,20 +64,28 @@
   }
 }
 
-/* Dedicated Print styling for Invoices, Statements, and Reports */
+/* Dedicated Print styling strictly adjusted for A4 Portrait Printers */
 @media print {
   @page {
+    size: A4 portrait;
     margin: 8mm 10mm;
-    size: auto;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   html, body, #root, .flex-1, main {
+    width: 100% !important;
+    max-width: 100% !important;
     height: auto !important;
     min-height: auto !important;
     overflow: visible !important;
     position: static !important;
     background: white !important;
     color: #0f172a !important;
+    font-size: 11px !important;
   }
 
   body * {
@@ -92,32 +100,39 @@
     position: static !important;
     display: block !important;
     width: 100% !important;
+    max-width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     background: white !important;
     color: #0f172a !important;
     box-shadow: none !important;
     border: none !important;
+    overflow: visible !important;
   }
 
-  .no-print, nav, aside, header, button {
+  .no-print, nav, aside, header, button, .modal-backdrop {
     display: none !important;
   }
 
-  /* Unravel fixed modal overlays so print document flows naturally */
-  .fixed {
+  /* Unravel fixed modal overlays so print document flows naturally onto A4 page */
+  .fixed, .fixed > div {
     position: static !important;
     display: block !important;
     background: transparent !important;
     padding: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 
-  /* Ensure table headers repeat across pages and rows do not break across pages */
+  /* Ensure table headers repeat across pages and rows do not break awkwardly */
   table {
     page-break-inside: auto;
     width: 100% !important;
+    border-collapse: collapse !important;
   }
   thead {
     display: table-header-group !important;
@@ -127,7 +142,30 @@
   }
   tr {
     page-break-inside: avoid !important;
+    break-inside: avoid !important;
     page-break-after: auto !important;
+  }
+
+  /* Tighten cell padding and font-size for A4 fit so no horizontal clipping occurs */
+  .print-area th, .print-area td {
+    padding: 4px 6px !important;
+    font-size: 9.5px !important;
+    line-height: 1.3 !important;
+  }
+  .print-area th {
+    font-size: 9px !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .print-area img {
+    max-height: 44px !important;
+    width: auto !important;
+    object-fit: contain !important;
+  }
+
+  .break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
 

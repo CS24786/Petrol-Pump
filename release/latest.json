@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "tag": "v1.0.0",
+  "productName": "Diyal Filling Station",
+  "releaseDate": "2026-10-24",
+  "installerName": "Diyal-Filling-Station-Setup-1.0.0.exe",
+  "downloadUrl": "https://github.com/CS24786/Petrol-Pump/releases/download/v1.0.0/Diyal-Filling-Station-Setup-1.0.0.exe",
+  "githubRepo": "CS24786/Petrol-Pump",
+  "changelog": "Initial stable release: Complete offline station management, customer ledgers, meter readings, real-time dashboard, desktop shortcut installer, and remote GitHub auto-update support."
+}

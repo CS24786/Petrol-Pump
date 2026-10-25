@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatNumber, formatDateDisplay, exportToCSV } from '../utils/formatters';
 import ThreeCopyChallanModal from '../components/ThreeCopyChallanModal';
+import Pagination from '../components/Pagination';
 
 export default function DailySales({ onOpenQuickSale, onOpenReceipt }) {
   const [selectedDate, setSelectedDate] = useState('2026-10-22');
@@ -30,6 +31,10 @@ export default function DailySales({ onOpenQuickSale, onOpenReceipt }) {
   const [customerTypeFilter, setCustomerTypeFilter] = useState('All'); // 'All', 'Business', 'Retail'
   const [searchQuery, setSearchQuery] = useState('');
   const [challanFor3Copy, setChallanFor3Copy] = useState(null);
+
+  // Pagination states
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Queries
   const sales = useLiveQuery(() => db.sales?.orderBy('id').reverse().toArray() || [], []);
@@ -60,6 +65,11 @@ export default function DailySales({ onOpenQuickSale, onOpenReceipt }) {
       return true;
     });
   }, [sales, selectedDate, fuelFilter, customerTypeFilter, searchQuery]);
+
+  const paginatedSales = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return dateSales.slice(start, start + pageSize);
+  }, [dateSales, page, pageSize]);
 
   // DAILY 3-WAY RECONCILIATION TOTALS
   const reconciliation = useMemo(() => {
@@ -171,23 +181,21 @@ export default function DailySales({ onOpenQuickSale, onOpenReceipt }) {
       {/* 1. TOP PANORAMIC STATION BANNER (Identical to Dashboard) */}
       <div 
         className="w-full h-44 rounded-2xl relative overflow-hidden bg-cover bg-center shadow-sm flex items-center justify-between px-8"
-        style={{ backgroundImage: "url('/dashboard_background.jpg')" }}
+        style={{ backgroundImage: "url('./dashboard_background.jpg')" }}
       >
         {/* Dark Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-r from-[#0F1B2F]/95 via-[#0F1B2F]/80 to-transparent pointer-events-none"></div>
 
         {/* Banner Left Info */}
         <div className="relative z-10 text-white max-w-xl flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-xl bg-white p-1 shadow-md flex items-center justify-center shrink-0 border border-white/20">
-            <img
-              src="/logo.jpg"
-              alt="Diyal Logo"
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                e.target.src = '/logo.png';
-              }}
-            />
-          </div>
+          <img
+            src="./logo.png"
+            alt="Diyal Logo"
+            className="h-12 w-auto object-contain shrink-0 drop-shadow-md"
+            onError={(e) => {
+              e.target.src = './logo.jpg';
+            }}
+          />
           <div>
             <span className="text-white/80 text-xs sm:text-sm font-medium tracking-wide block">
               Diyal Filling Station &bull; Module 2
@@ -519,7 +527,7 @@ export default function DailySales({ onOpenQuickSale, onOpenReceipt }) {
                   </td>
                 </tr>
               ) : (
-                dateSales.map(s => {
+                paginatedSales.map(s => {
                   const advancesAndOil = (Number(s.cashAdvance) || 0) + (Number(s.mobilOil) || 0);
 
                   return (
@@ -626,6 +634,14 @@ export default function DailySales({ onOpenQuickSale, onOpenReceipt }) {
             )}
           </table>
         </div>
+
+        <Pagination 
+          currentPage={page}
+          totalItems={dateSales.length}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+        />
       </div>
 
       {/* 3-Copy Print Modal */}

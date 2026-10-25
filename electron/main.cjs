@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // Ensure single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -16,7 +17,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'Diyal Filling Station — Petrol Pump Management System',
-    icon: path.join(__dirname, '../public/pump-icon.svg'),
+    icon: path.join(__dirname, '../public/logo.ico'),
     backgroundColor: '#020617',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -29,13 +30,14 @@ function createWindow() {
     show: false
   });
 
-  // Load dev server or production index.html
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
-    // mainWindow.webContents.openDevTools();
+  // Load production index.html or dev server
+  const indexPath = path.join(__dirname, '../dist/index.html');
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  } else if (fs.existsSync(indexPath)) {
+    mainWindow.loadFile(indexPath);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadURL('http://localhost:5173');
   }
 
   mainWindow.once('ready-to-show', () => {
@@ -93,6 +95,14 @@ function createApplicationMenu() {
       ]
     },
     {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' }
+      ]
+    },
+    {
       label: 'Help',
       submenu: [
         {
@@ -136,6 +146,95 @@ ipcMain.on('window-close', () => {
 
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
+});
+
+// Native Vector PDF Exporter
+ipcMain.handle('export-pdf', async (event, htmlContent, defaultName, options = {}) => {
+  let printWindow = null;
+  try {
+    printWindow = new BrowserWindow({
+      show: false,
+      width: 1024,
+      height: 900,
+      webPreferences: {
+        nodeIntegration: false
+      }
+    });
+
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>${defaultName || 'Document'}</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 8mm;
+          }
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
+            margin: 0;
+            padding: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #0f172a;
+            background: #ffffff;
+            width: 100%;
+          }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+        </style>
+      </head>
+      <body>
+        ${htmlContent}
+      </body>
+      </html>
+    `;
+
+    await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(fullHtml)}`);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const pdfBuffer = await printWindow.webContents.printToPDF({
+      printBackground: true,
+      landscape: !!options.landscape,
+      pageSize: 'A4',
+      margins: {
+        marginType: 'custom',
+        top: 0.3,
+        bottom: 0.3,
+        left: 0.3,
+        right: 0.3
+      }
+    });
+
+    const { filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save PDF Report — Diyal Filling Station',
+      defaultPath: defaultName || `diyal_report_${new Date().toISOString().slice(0, 10)}.pdf`,
+      filters: [{ name: 'PDF Documents (*.pdf)', extensions: ['pdf'] }]
+    });
+
+    if (filePath) {
+      fs.writeFileSync(filePath, pdfBuffer);
+      try {
+        shell.openPath(filePath);
+      } catch (_) {}
+      return { success: true, filePath };
+    }
+    return { success: false, cancelled: true };
+  } catch (err) {
+    console.error('Export PDF error:', err);
+    return { success: false, error: err.message };
+  } finally {
+    if (printWindow) {
+      try { printWindow.close(); } catch (_) {}
+    }
+  }
 });
 
 app.on('second-instance', () => {

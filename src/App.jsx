@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db/db';
-import { seedInitialData } from './db/seedData';
+import { ensureSystemInitialized } from './db/seedData';
 import { getSessionUser, clearSessionUser } from './utils/auth';
 
 // Components
@@ -57,13 +57,13 @@ export default function App() {
     return map;
   }, [settingsList]);
 
-  // Initial database check & seed data loading
+  // Initial database check & minimal system defaults (starts at 0 clean state)
   useEffect(() => {
     async function init() {
       try {
-        await seedInitialData(false);
+        await ensureSystemInitialized();
       } catch (err) {
-        console.error('Seed data error:', err);
+        console.error('System initialization error:', err);
       } finally {
         setIsInitialized(true);
       }

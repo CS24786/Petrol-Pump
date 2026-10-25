@@ -286,7 +286,7 @@ export default function DailyExpenses() {
       </div>
 
       {/* Expenses Table */}
-      <div className="print-area bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="p-4 border-b border-slate-200 flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900">Expenses Log &amp; Vouchers</h3>
           <span className="text-xs font-bold text-blue-700 font-mono">

@@ -25,6 +25,7 @@ import {
   Check
 } from 'lucide-react';
 import { formatNumber, formatCurrency, formatDateDisplay, exportToCSV } from '../utils/formatters';
+import Pagination from '../components/Pagination';
 
 export default function StockManagement() {
   const [activeTab, setActiveTab] = useState('tanks'); // 'tanks', 'sheet', 'nozzles'
@@ -50,6 +51,28 @@ export default function StockManagement() {
   const [editTankThreshold, setEditTankThreshold] = useState('');
   const [editTankError, setEditTankError] = useState('');
 
+  // Add Nozzle Modal State
+  const [isAddNozzleModalOpen, setIsAddNozzleModalOpen] = useState(false);
+  const [newNozzleName, setNewNozzleName] = useState('');
+  const [newNozzleTankId, setNewNozzleTankId] = useState('');
+  const [newNozzleFuelType, setNewNozzleFuelType] = useState('Diesel');
+  const [newNozzleOpeningMeter, setNewNozzleOpeningMeter] = useState('0');
+  const [newNozzleCurrentMeter, setNewNozzleCurrentMeter] = useState('0');
+  const [newNozzleTestingLitres, setNewNozzleTestingLitres] = useState('0');
+  const [addNozzleError, setAddNozzleError] = useState('');
+  const [isAddingNozzle, setIsAddingNozzle] = useState(false);
+
+  // Edit Nozzle Modal State
+  const [isEditNozzleModalOpen, setIsEditNozzleModalOpen] = useState(false);
+  const [editingNozzle, setEditingNozzle] = useState(null);
+  const [editNozzleName, setEditNozzleName] = useState('');
+  const [editNozzleTankId, setEditNozzleTankId] = useState('');
+  const [editNozzleFuelType, setEditNozzleFuelType] = useState('Diesel');
+  const [editNozzleOpeningMeter, setEditNozzleOpeningMeter] = useState('0');
+  const [editNozzleCurrentMeter, setEditNozzleCurrentMeter] = useState('0');
+  const [editNozzleTestingLitres, setEditNozzleTestingLitres] = useState('0');
+  const [editNozzleError, setEditNozzleError] = useState('');
+
   // Dip modal state
   const [selectedTank, setSelectedTank] = useState(null);
   const [dipCm, setDipCm] = useState('');
@@ -67,6 +90,10 @@ export default function StockManagement() {
   // Stock Sheet Filter State
   const [sheetFuel, setSheetFuel] = useState('All');
   const [sheetMonth, setSheetMonth] = useState('2026-10');
+
+  // Pagination state for Stock Sheet
+  const [sheetPage, setSheetPage] = useState(1);
+  const [sheetPageSize, setSheetPageSize] = useState(10);
 
   // Queries
   const tanks = useLiveQuery(() => db.tanks.toArray(), []);
@@ -206,6 +233,171 @@ export default function StockManagement() {
     }
   };
 
+  // --- ADD NOZZLE HANDLERS ---
+  const handleOpenAddNozzle = () => {
+    if (!tanks || tanks.length === 0) {
+      alert('Underground tanks are currently empty / zero. Please commission at least one Storage Tank first before adding a dispenser nozzle.');
+      handleOpenAddTank();
+      return;
+    }
+    const defaultTank = tanks[0];
+    const nextNum = (nozzles?.length || 0) + 1;
+    setNewNozzleName(`Nozzle ${nextNum} (${defaultTank.fuelType === 'Petrol' ? 'PMG Petrol' : 'HSD Diesel'} - Bay 1A)`);
+    setNewNozzleTankId(String(defaultTank.id));
+    setNewNozzleFuelType(defaultTank.fuelType || 'Diesel');
+    setNewNozzleOpeningMeter('0');
+    setNewNozzleCurrentMeter('0');
+    setNewNozzleTestingLitres('0');
+    setAddNozzleError('');
+    setIsAddNozzleModalOpen(true);
+  };
+
+  const handleTankSelectionChange = (tankId) => {
+    setNewNozzleTankId(tankId);
+    const selected = (tanks || []).find(t => String(t.id) === String(tankId));
+    if (selected) {
+      setNewNozzleFuelType(selected.fuelType || 'Diesel');
+    }
+  };
+
+  const handleSaveNewNozzle = async (e) => {
+    e.preventDefault();
+    if (!newNozzleName.trim()) {
+      setAddNozzleError('Please enter a nozzle name / bay identifier.');
+      return;
+    }
+    if (!newNozzleTankId) {
+      setAddNozzleError('Please select a storage tank to connect this nozzle.');
+      return;
+    }
+
+    const opening = parseFloat(newNozzleOpeningMeter) || 0;
+    const current = parseFloat(newNozzleCurrentMeter) || opening;
+    const testing = parseFloat(newNozzleTestingLitres) || 0;
+
+    if (current < opening) {
+      setAddNozzleError('Current meter reading cannot be less than opening meter reading.');
+      return;
+    }
+
+    setIsAddingNozzle(true);
+    setAddNozzleError('');
+
+    try {
+      const nozzleId = await db.nozzles.add({
+        tankId: Number(newNozzleTankId),
+        nozzleName: newNozzleName.trim(),
+        fuelType: newNozzleFuelType,
+        openingMeter: opening,
+        currentMeter: current,
+        testingLitres: testing,
+        isActive: true,
+        createdAt: new Date().toISOString()
+      });
+
+      if (db.auditLogs) {
+        await db.auditLogs.add({
+          date: new Date().toISOString().split('T')[0],
+          entityType: 'Nozzle',
+          entityId: nozzleId,
+          action: 'Create',
+          performedBy: 'admin',
+          reason: 'Commissioned new dispenser nozzle',
+          details: `Added ${newNozzleName.trim()} connected to Tank #${newNozzleTankId} (${newNozzleFuelType})`,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      setIsAddNozzleModalOpen(false);
+    } catch (err) {
+      setAddNozzleError(err.message || 'Failed to add dispenser nozzle.');
+    } finally {
+      setIsAddingNozzle(false);
+    }
+  };
+
+  // --- EDIT NOZZLE HANDLERS ---
+  const handleOpenEditNozzle = (nozzle) => {
+    setEditingNozzle(nozzle);
+    setEditNozzleName(nozzle.nozzleName || '');
+    setEditNozzleTankId(String(nozzle.tankId || ''));
+    setEditNozzleFuelType(nozzle.fuelType || 'Diesel');
+    setEditNozzleOpeningMeter(String(nozzle.openingMeter ?? 0));
+    setEditNozzleCurrentMeter(String(nozzle.currentMeter ?? 0));
+    setEditNozzleTestingLitres(String(nozzle.testingLitres ?? 0));
+    setEditNozzleError('');
+    setIsEditNozzleModalOpen(true);
+  };
+
+  const handleEditTankSelectionChange = (tankId) => {
+    setEditNozzleTankId(tankId);
+    const selected = (tanks || []).find(t => String(t.id) === String(tankId));
+    if (selected) {
+      setEditNozzleFuelType(selected.fuelType || 'Diesel');
+    }
+  };
+
+  const handleSaveEditNozzle = async (e) => {
+    e.preventDefault();
+    if (!editingNozzle) return;
+    if (!editNozzleName.trim()) {
+      setEditNozzleError('Nozzle name is required.');
+      return;
+    }
+
+    const opening = parseFloat(editNozzleOpeningMeter) || 0;
+    const current = parseFloat(editNozzleCurrentMeter) || opening;
+    const testing = parseFloat(editNozzleTestingLitres) || 0;
+
+    if (current < opening) {
+      setEditNozzleError('Current meter reading cannot be less than opening meter reading.');
+      return;
+    }
+
+    try {
+      await db.nozzles.update(editingNozzle.id, {
+        nozzleName: editNozzleName.trim(),
+        tankId: Number(editNozzleTankId),
+        fuelType: editNozzleFuelType,
+        openingMeter: opening,
+        currentMeter: current,
+        testingLitres: testing
+      });
+
+      setIsEditNozzleModalOpen(false);
+    } catch (err) {
+      setEditNozzleError(err.message || 'Failed to update nozzle details.');
+    }
+  };
+
+  // --- DELETE NOZZLE HANDLER ---
+  const handleDeleteNozzle = async (nozzle) => {
+    let readingCount = 0;
+    try {
+      readingCount = await db.meterReadings.where('nozzleId').equals(nozzle.id).count();
+    } catch (e) {}
+
+    const msg = readingCount > 0 
+      ? `Warning: This nozzle has ${readingCount} historical meter reading(s). Deleting it will remove the dispenser definition. Are you sure you want to delete "${nozzle.nozzleName}"?`
+      : `Are you sure you want to delete "${nozzle.nozzleName}"? This action cannot be undone.`;
+
+    if (window.confirm(msg)) {
+      await db.nozzles.delete(nozzle.id);
+      if (db.auditLogs) {
+        await db.auditLogs.add({
+          date: new Date().toISOString().split('T')[0],
+          entityType: 'Nozzle',
+          entityId: nozzle.id,
+          action: 'Delete',
+          performedBy: 'admin',
+          reason: 'Decommissioned dispenser nozzle',
+          details: `Deleted nozzle ${nozzle.nozzleName} (#${nozzle.id})`,
+          createdAt: new Date().toISOString()
+        });
+      }
+    }
+  };
+
   // --- DIP UPDATE HANDLERS ---
   const handleOpenDip = (tank) => {
     setSelectedTank(tank);
@@ -331,6 +523,11 @@ export default function StockManagement() {
     return sheetRows.sort((a, b) => b.date.localeCompare(a.date));
   }, [sales, purchases, adjustments, sheetMonth, sheetFuel]);
 
+  const paginatedStockSheet = useMemo(() => {
+    const start = (sheetPage - 1) * sheetPageSize;
+    return stockSheetData.slice(start, start + sheetPageSize);
+  }, [stockSheetData, sheetPage, sheetPageSize]);
+
   // Totals for Stock Sheet
   const sheetTotals = useMemo(() => {
     let totalReceived = 0;
@@ -426,7 +623,7 @@ export default function StockManagement() {
       <div 
         className="relative rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden no-print min-h-[160px] flex items-center bg-slate-900 bg-cover bg-right md:bg-center"
         style={{
-          backgroundImage: "url('/meter_background.jpg')"
+          backgroundImage: "url('./meter_background.jpg')"
         }}
       >
         {/* Soft gradient overlay on left for maximum text & icon contrast */}
@@ -648,7 +845,24 @@ export default function StockManagement() {
 
           {/* Underground Tanks Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {filteredTanks?.map(tank => {
+            {filteredTanks?.length === 0 ? (
+              <div className="col-span-full bg-white border border-slate-200/80 rounded-2xl p-10 text-center space-y-3 shadow-xs">
+                <Database className="w-12 h-12 text-slate-300 mx-auto" />
+                <h4 className="text-base font-bold text-slate-800">No Underground Storage Tanks</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Fuel Stock and Tanks are currently at zero. Click "New Storage Tank" or "+ Add New Tank" to commission an underground storage tank.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleOpenAddTank}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Add New Tank</span>
+                </button>
+              </div>
+            ) : (
+              filteredTanks?.map(tank => {
               const capacity = tank.capacityLitres || 1;
               const stock = tank.currentStockLitres || 0;
               const pct = Math.min(100, Math.round((stock / capacity) * 100));
@@ -767,7 +981,7 @@ export default function StockManagement() {
                   </div>
                 </div>
               );
-            })}
+            }))}
           </div>
 
           {/* Quick Dispenser Nozzles Preview inside Tab 1 */}
@@ -800,29 +1014,37 @@ export default function StockManagement() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {nozzles?.map(n => {
-                    const dispensed = Math.max(0, (n.currentMeter || 0) - (n.openingMeter || 0) - (n.testingLitres || 0));
+                  {nozzles?.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                        Zero dispenser nozzles configured. Click "+ Add Nozzle" above or view full registry to commission nozzles.
+                      </td>
+                    </tr>
+                  ) : (
+                    nozzles?.map(n => {
+                      const dispensed = Math.max(0, (n.currentMeter || 0) - (n.openingMeter || 0) - (n.testingLitres || 0));
 
-                    return (
-                      <tr key={n.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-2.5 px-4 font-mono font-bold text-slate-800">#{n.id}</td>
-                        <td className="py-2.5 px-4 font-medium text-slate-900">{n.nozzleName}</td>
-                        <td className="py-2.5 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            n.fuelType === 'Diesel'
-                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}>
-                            {n.fuelType}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 text-right font-mono text-slate-600">{formatNumber(n.openingMeter, 1)}</td>
-                        <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(n.currentMeter, 1)}</td>
-                        <td className="py-2.5 px-4 text-right font-mono text-slate-500">{n.testingLitres || 0} L</td>
-                        <td className="py-2.5 px-4 text-right font-mono font-bold text-blue-700">{formatNumber(dispensed, 1)} L</td>
-                      </tr>
-                    );
-                  })}
+                      return (
+                        <tr key={n.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-2.5 px-4 font-mono font-bold text-slate-800">#{n.id}</td>
+                          <td className="py-2.5 px-4 font-medium text-slate-900">{n.nozzleName}</td>
+                          <td className="py-2.5 px-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              n.fuelType === 'Diesel'
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}>
+                              {n.fuelType}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono text-slate-600">{formatNumber(n.openingMeter, 1)}</td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(n.currentMeter, 1)}</td>
+                          <td className="py-2.5 px-4 text-right font-mono text-slate-500">{n.testingLitres || 0} L</td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold text-blue-700">{formatNumber(dispensed, 1)} L</td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -903,7 +1125,7 @@ export default function StockManagement() {
           </div>
 
           {/* Stock Sheet Table */}
-          <div className="print-area bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
             <div className="p-4 sm:p-5 border-b border-slate-200/80">
               <h3 className="text-sm font-bold text-slate-900">Date-wise Fuel Stock Sheet ({sheetMonth})</h3>
             </div>
@@ -929,7 +1151,7 @@ export default function StockManagement() {
                       </td>
                     </tr>
                   ) : (
-                    stockSheetData.map((row, idx) => (
+                    paginatedStockSheet.map((row, idx) => (
                       <tr key={`${row.date}-${row.fuelType}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2.5 px-4 font-mono font-bold text-slate-800">{formatDateDisplay(row.date)}</td>
                         <td className="py-2.5 px-4">
@@ -960,6 +1182,14 @@ export default function StockManagement() {
                 </tbody>
               </table>
             </div>
+
+            <Pagination 
+              currentPage={sheetPage}
+              totalItems={stockSheetData.length}
+              pageSize={sheetPageSize}
+              onPageChange={setSheetPage}
+              onPageSizeChange={(sz) => { setSheetPageSize(sz); setSheetPage(1); }}
+            />
           </div>
 
         </div>
@@ -969,10 +1199,20 @@ export default function StockManagement() {
       {activeTab === 'nozzles' && (
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-            <div className="p-4 sm:p-5 border-b border-slate-200/80 flex items-center justify-between">
+            <div className="p-4 sm:p-5 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Dispenser Nozzles &amp; Mechanical/Electronic Totalizers</h3>
                 <p className="text-xs text-slate-500">Each dispenser nozzle is physically piped to an underground storage tank</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenAddNozzle}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Add Nozzle</span>
+                </button>
               </div>
             </div>
 
@@ -988,36 +1228,77 @@ export default function StockManagement() {
                     <th className="py-3 px-4 text-right">Current Meter</th>
                     <th className="py-3 px-4 text-right">Testing (Ltr)</th>
                     <th className="py-3 px-4 text-right">Total Dispensed</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {nozzles?.map(n => {
-                    const linkedTank = tanks?.find(t => t.id === n.tankId);
-                    const dispensed = Math.max(0, (n.currentMeter || 0) - (n.openingMeter || 0) - (n.testingLitres || 0));
+                  {nozzles?.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-12 text-center">
+                        <Gauge className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                        <p className="text-sm font-bold text-slate-700">No Dispenser Nozzles Configured</p>
+                        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                          Zero dispenser nozzles currently registered. Click "+ Add Nozzle" above to register and link a nozzle to a storage tank.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleOpenAddNozzle}
+                          className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          <span>Add Nozzle Now</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    nozzles?.map(n => {
+                      const linkedTank = tanks?.find(t => t.id === n.tankId);
+                      const dispensed = Math.max(0, (n.currentMeter || 0) - (n.openingMeter || 0) - (n.testingLitres || 0));
 
-                    return (
-                      <tr key={n.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-slate-900">#{n.id}</td>
-                        <td className="py-3 px-4 font-bold text-slate-900">{n.nozzleName}</td>
-                        <td className="py-3 px-4 text-slate-600">
-                          {linkedTank ? linkedTank.tankName : `Tank #${n.tankId}`}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            n.fuelType === 'Diesel'
-                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}>
-                            {n.fuelType}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-slate-600">{formatNumber(n.openingMeter, 1)}</td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(n.currentMeter, 1)}</td>
-                        <td className="py-3 px-4 text-right font-mono text-slate-500">{n.testingLitres || 0} L</td>
-                        <td className="py-3 px-4 text-right font-mono font-black text-blue-700">{formatNumber(dispensed, 1)} L</td>
-                      </tr>
-                    );
-                  })}
+                      return (
+                        <tr key={n.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-4 font-mono font-bold text-slate-900">#{n.id}</td>
+                          <td className="py-3 px-4 font-bold text-slate-900">{n.nozzleName}</td>
+                          <td className="py-3 px-4 text-slate-600">
+                            {linkedTank ? linkedTank.tankName : `Tank #${n.tankId}`}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              n.fuelType === 'Diesel'
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}>
+                              {n.fuelType}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-slate-600">{formatNumber(n.openingMeter, 1)}</td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatNumber(n.currentMeter, 1)}</td>
+                          <td className="py-3 px-4 text-right font-mono text-slate-500">{n.testingLitres || 0} L</td>
+                          <td className="py-3 px-4 text-right font-mono font-black text-blue-700">{formatNumber(dispensed, 1)} L</td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditNozzle(n)}
+                                title="Edit Nozzle Details"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteNozzle(n)}
+                                title="Delete Nozzle"
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1463,6 +1744,291 @@ export default function StockManagement() {
                   className="px-5 py-2 bg-[#C32026] hover:bg-[#a81a1f] text-white font-bold rounded-xl cursor-pointer shadow-sm transition-all"
                 >
                   Apply Stock Adjustment
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: ADD NEW DISPENSER NOZZLE                                         */}
+      {/* ========================================================================= */}
+      {isAddNozzleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto no-print">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-6 sm:p-7 shadow-2xl space-y-5 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between border-b pb-4 border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                  <Gauge className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">Add Dispenser Nozzle</h3>
+                  <p className="text-xs text-slate-500">Commission a dispensing nozzle piped to an underground tank</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsAddNozzleModalOpen(false)} 
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {addNozzleError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{addNozzleError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveNewNozzle} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Nozzle Name &amp; Island Bay *
+                </label>
+                <input
+                  type="text"
+                  value={newNozzleName}
+                  onChange={e => setNewNozzleName(e.target.value)}
+                  placeholder="e.g. Nozzle 1 (HSD Diesel - Bay 1A)"
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-900 focus:bg-white focus:border-blue-500 focus:outline-none transition-all"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Connected Storage Tank *
+                  </label>
+                  <select
+                    value={newNozzleTankId}
+                    onChange={e => handleTankSelectionChange(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 focus:bg-white focus:border-blue-500 focus:outline-none transition-all cursor-pointer"
+                  >
+                    {tanks?.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.tankName} ({t.fuelType})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Fuel Product *
+                  </label>
+                  <select
+                    value={newNozzleFuelType}
+                    onChange={e => setNewNozzleFuelType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 focus:bg-white focus:border-blue-500 focus:outline-none transition-all cursor-pointer"
+                  >
+                    <option value="Diesel">High Speed Diesel (HSD)</option>
+                    <option value="Petrol">Super Motor Gasoline (PMG)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Opening Meter *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={newNozzleOpeningMeter}
+                    onChange={e => setNewNozzleOpeningMeter(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Current Meter
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={newNozzleCurrentMeter}
+                    onChange={e => setNewNozzleCurrentMeter(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Testing (Litres)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={newNozzleTestingLitres}
+                    onChange={e => setNewNozzleTestingLitres(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddNozzleModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingNozzle}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold rounded-xl cursor-pointer shadow-sm transition-all"
+                >
+                  {isAddingNozzle ? 'Commissioning...' : 'Commission Nozzle'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 6: EDIT DISPENSER NOZZLE                                            */}
+      {/* ========================================================================= */}
+      {isEditNozzleModalOpen && editingNozzle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto no-print">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-6 sm:p-7 shadow-2xl space-y-5 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between border-b pb-4 border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 flex items-center justify-center">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">Edit Dispenser Nozzle #{editingNozzle.id}</h3>
+                  <p className="text-xs text-slate-500">Update nozzle name, linked storage tank, or meters</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsEditNozzleModalOpen(false)} 
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editNozzleError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{editNozzleError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveEditNozzle} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Nozzle Name &amp; Island Bay *
+                </label>
+                <input
+                  type="text"
+                  value={editNozzleName}
+                  onChange={e => setEditNozzleName(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-900 focus:bg-white focus:border-blue-500 focus:outline-none transition-all"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Connected Storage Tank *
+                  </label>
+                  <select
+                    value={editNozzleTankId}
+                    onChange={e => handleEditTankSelectionChange(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 focus:bg-white focus:border-blue-500 focus:outline-none transition-all cursor-pointer"
+                  >
+                    {tanks?.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.tankName} ({t.fuelType})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Fuel Product *
+                  </label>
+                  <select
+                    value={editNozzleFuelType}
+                    onChange={e => setEditNozzleFuelType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-900 focus:bg-white focus:border-blue-500 focus:outline-none transition-all cursor-pointer"
+                  >
+                    <option value="Diesel">High Speed Diesel (HSD)</option>
+                    <option value="Petrol">Super Motor Gasoline (PMG)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Opening Meter
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editNozzleOpeningMeter}
+                    onChange={e => setEditNozzleOpeningMeter(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Current Meter
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editNozzleCurrentMeter}
+                    onChange={e => setEditNozzleCurrentMeter(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Testing (Litres)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editNozzleTestingLitres}
+                    onChange={e => setEditNozzleTestingLitres(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditNozzleModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl cursor-pointer shadow-sm transition-all"
+                >
+                  Update Nozzle
                 </button>
               </div>
             </form>
